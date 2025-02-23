@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package data_nexus;
+
+option go_package = "github.com/haze518/data-nexus/proto";
+
+service MetricsService {
+  rpc IngestMetric(Metric) returns (IngestResponse);
+}
+
+message Metric {
+    string name = 1;
+    double value = 2;
+    int64 timestamp = 3;
+    map<string, string> labels = 4;
+}
+  
+message IngestResponse {
+    string eventId = 1;
+}
