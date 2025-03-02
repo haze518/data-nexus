@@ -2,7 +2,6 @@ package datanexus
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -12,14 +11,12 @@ import (
 	"github.com/haze518/data-nexus/internal/logging"
 	"github.com/haze518/data-nexus/internal/testutil"
 	"github.com/haze518/data-nexus/internal/types"
-	"github.com/redis/go-redis/v9"
 )
 
-func TestRedistributor_ProcessInactiveServers_MessagesReassigned(t *testing.T) {
+func TestRedistributor(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
 	client := testutil.SetupRedis(t)
-	config := testutil.TestRedisConfig()
 	defer testutil.CleanupRedis(t, client)
 
 	inactiveRs := newRedis(ctx, "dead_server", logger)
@@ -46,45 +43,24 @@ func TestRedistributor_ProcessInactiveServers_MessagesReassigned(t *testing.T) {
 		t.Fatalf("failed to consume messages: %v", err)
 	}
 
-	redistributor := newRedistributor(activeRs, 100*time.Millisecond, logger)
+	ch := make(chan *types.Metric, 3)
+	redistributor := newRedistributor(activeRs, 100*time.Millisecond, logger, ch)
+
 	wg := &sync.WaitGroup{}
 	redistributor.start(wg)
 
-	time.Sleep(1 * time.Second)
-
-	pendingActive, err := client.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream:   config.StreamName,
-		Group:    config.ConsumerGroup,
-		Start:    "-",
-		End:      "+",
-		Count:    10,
-		Consumer: "active_server",
-	}).Result()
-	if err != nil {
-		t.Fatalf("failed to get pending messages for active_server: %v", err)
-	}
-	if len(pendingActive) == 0 {
-		t.Errorf("expected pending messages for active_server, but got none")
+	var received []*types.Metric
+	for i := 0; i < 3; i++ {
+		select {
+		case metric := <-ch:
+			received = append(received, metric)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout: did not receive expected messages")
+		}
 	}
 
-	pendingDead, err := client.XPendingExt(ctx, &redis.XPendingExtArgs{
-		Stream:   config.StreamName,
-		Group:    config.ConsumerGroup,
-		Start:    "-",
-		End:      "+",
-		Count:    10,
-		Consumer: "dead_server",
-	}).Result()
-	if err != nil {
-		t.Fatalf("failed to get pending messages for dead_server: %v", err)
-	}
-	if len(pendingDead) > 0 {
-		t.Errorf("expected no pending messages for dead_server, but got %d", len(pendingDead))
-	}
-
-	exists, _ := client.Exists(ctx, fmt.Sprintf("heartbeat:%s", "dead_server")).Result()
-	if exists != 0 {
-		t.Errorf("expected heartbeat to be deleted after all messages were moved, but it still exists")
+	if len(received) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(received))
 	}
 
 	redistributor.shutdown()

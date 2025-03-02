@@ -125,7 +125,7 @@ func (b *RedisBroker) ListServers(ctx context.Context) (map[string]types.ServerS
 	return serverStates, nil
 }
 
-func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv string, batchSize int) ([]string, error) {
+func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv string, batchSize int) ([]*types.Metric, error) {
 	script := redis.NewScript(`
 		local stateKey = KEYS[1]
 		local lockKey = KEYS[2]
@@ -166,7 +166,7 @@ func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv st
 		end
 
 		redis.call("DEL", lockKey)
-		return messageIDs
+		return claimedMessages
 	`)
 
 	keys := []string{
@@ -182,17 +182,42 @@ func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv st
 		return nil, fmt.Errorf("script.Run: %w", err)
 	}
 
-	messageIDsIface, ok := result.([]interface{})
+	claimedMessages, ok := result.([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("unexpected result type: %T", result)
 	}
 
-	var ids []string
-	for _, id := range messageIDsIface {
-		ids = append(ids, id.(string))
-	}
+	metrics := make([]*types.Metric, 0, len(claimedMessages))
+	for _, msg := range claimedMessages {
+		msgSlice, ok := msg.([]interface{})
+		if !ok || len(msgSlice) < 2 {
+			continue
+		}
 
-	return ids, nil
+		messageID, ok := msgSlice[0].(string)
+		if !ok {
+			continue
+		}
+		b.log.Debug("MoveInactiveServerMsgs got message with id", messageID)
+
+		fieldData, ok := msgSlice[1].([]interface{})
+		if !ok {
+			continue
+		}
+
+		rawData, ok := fieldData[1].(string)
+		if !ok {
+			continue
+		}
+
+		metric, err := types.Unmarshal([]byte(rawData))
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal: %w", err)
+		}
+
+		metrics = append(metrics, metric)
+	}
+	return metrics, nil
 }
 
 func (b *RedisBroker) ensureGroupExists(ctx context.Context) error {

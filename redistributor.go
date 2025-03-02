@@ -17,14 +17,16 @@ type redistributor struct {
 	done     chan struct{}
 	logger   *logging.Logger
 	broker   broker.Broker
+	msgCh    chan<- *types.Metric
 }
 
-func newRedistributor(broker broker.Broker, interval time.Duration, logger *logging.Logger) *redistributor {
+func newRedistributor(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh chan<- *types.Metric) *redistributor {
 	return &redistributor{
 		broker:   broker,
 		interval: interval,
 		logger:   logger,
 		done:     make(chan struct{}),
+		msgCh:    msgCh,
 	}
 }
 
@@ -52,13 +54,16 @@ func (r *redistributor) start(wg *sync.WaitGroup) {
 				})
 
 				for _, srv := range servers {
-					messageIDs, err := r.broker.MoveInactiveServerMsgs(context.Background(), srv, 50)
+					metrics, err := r.broker.MoveInactiveServerMsgs(context.Background(), srv, 50)
 					if err != nil {
 						r.logger.Error(fmt.Sprintf("Failed to move messages for server %s: %v", srv, err))
 						continue
 					}
-					if len(messageIDs) > 0 {
-						r.logger.Info(fmt.Sprintf("Successfully moved %d messages from server %s", len(messageIDs), srv))
+					if len(metrics) > 0 {
+						for _, metric := range metrics {
+							r.msgCh <-metric
+						}
+						r.logger.Info(fmt.Sprintf("Successfully moved %d messages from server %s", len(metrics), srv))
 						break
 					}
 				}
