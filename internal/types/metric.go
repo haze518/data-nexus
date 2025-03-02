@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	pb "github.com/haze518/data-nexus/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 type Metric struct {

@@ -3,42 +3,30 @@ package broker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/haze518/data-nexus/internal"
 	"github.com/haze518/data-nexus/internal/logging"
 	"github.com/haze518/data-nexus/internal/types"
 	"github.com/redis/go-redis/v9"
 )
 
-type RedisConfig struct {
-	Addr          string
-	Password      string
-	DB            int
-	PoolSize      int
-	StreamName    string
-	ConsumerGroup string
-	ConsumerID    string
-	MaxStreamLen  int64
-	TrimStrategy  string
-	Retention     time.Duration
-}
-
 type RedisBroker struct {
 	client               *redis.Client
-	config               RedisConfig
+	config               internal.RedisConfig
 	log                  *logging.Logger
 	consumerGroupCreated bool
-	serverName string
 }
 
-func NewRedisBroker(ctx context.Context, config RedisConfig, logger *logging.Logger, serverName string) (*RedisBroker, error) {
+func NewRedisBroker(ctx context.Context, config internal.RedisConfig, logger *logging.Logger) (*RedisBroker, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     config.Addr,
 		Password: config.Password,
 		DB:       config.DB,
 		PoolSize: config.PoolSize,
 	})
-	return &RedisBroker{client, config, logger, false, serverName}, nil
+	return &RedisBroker{client, config, logger, false}, nil
 }
 
 func (b *RedisBroker) Publish(ctx context.Context, val *types.Metric) error {
@@ -98,8 +86,113 @@ func (b *RedisBroker) Consume(ctx context.Context, n int64) ([]*types.Metric, er
 }
 
 func (b *RedisBroker) SetServerState(ctx context.Context, state types.ServerState, ttl time.Duration) error {
-	// TODO: Consider the necessity of TTL
-	return b.client.Set(ctx, b.serverName, state, ttl).Err()
+	msg := fmt.Sprintf("state:%s", b.config.ConsumerID)
+	return b.client.Set(ctx, msg, state.String(), ttl).Err()
+}
+
+func (b *RedisBroker) ListServers(ctx context.Context) (map[string]types.ServerState, error) {
+	var cursor uint64
+	serverStates := make(map[string]types.ServerState)
+
+	for {
+		keys, newCursor, err := b.client.Scan(ctx, cursor, "state:*", 100).Result()
+		if err != nil {
+			return nil, fmt.Errorf("client.Scan: %w", err)
+		}
+
+		if len(keys) > 0 {
+			values, err := b.client.MGet(ctx, keys...).Result()
+			if err != nil {
+				return nil, fmt.Errorf("client.MGet: %w", err)
+			}
+
+			for i, key := range keys {
+				state, ok := values[i].(string)
+				if !ok {
+					continue
+				}
+				serverName := strings.TrimPrefix(key, "state:")
+				serverStates[serverName] = types.ServerState(types.ParseServerState(state))
+			}
+		}
+
+		cursor = newCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return serverStates, nil
+}
+
+func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv string, batchSize int) ([]string, error) {
+	script := redis.NewScript(`
+		local stateKey = KEYS[1]
+		local lockKey = KEYS[2]
+		local streamName = KEYS[3]
+
+		local consumerGroup = ARGV[1]
+		local newConsumer = ARGV[2]
+		local maxBatchSize = tonumber(ARGV[3])
+		local now = tonumber(ARGV[4])
+		local deadConsumer = ARGV[5]
+
+		local state = redis.call("GET", stateKey)
+		if state ~= "inactive" then
+			return {}
+		end
+
+		if redis.call("SETNX", lockKey, "locked") == 0 then
+			return {}
+		end
+		redis.call("EXPIRE", lockKey, 10)
+
+		local pendingMessages = redis.call("XPENDING", streamName, consumerGroup, 0, "+", maxBatchSize, deadConsumer)
+		if #pendingMessages == 0 then
+			redis.call("DEL", lockKey)
+			redis.call("DEL", stateKey)
+			return {}
+		end
+
+		local messageIDs = {}
+		for _, msg in ipairs(pendingMessages) do
+			table.insert(messageIDs, msg[1])
+		end
+
+		local claimedMessages = redis.call("XCLAIM", streamName, consumerGroup, newConsumer, 0, unpack(messageIDs))
+		if #claimedMessages == 0 then
+			redis.call("DEL", lockKey)
+			return {}
+		end
+
+		redis.call("DEL", lockKey)
+		return messageIDs
+	`)
+
+	keys := []string{
+		fmt.Sprintf("state:%s", inactiveSrv),
+		fmt.Sprintf("lock:%s", inactiveSrv),
+		b.config.StreamName,
+	}
+
+	args := []interface{}{b.config.ConsumerGroup, b.config.ConsumerID, batchSize, time.Now().Unix(), inactiveSrv}
+
+	result, err := script.Run(ctx, b.client, keys, args...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("script.Run: %w", err)
+	}
+
+	messageIDsIface, ok := result.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected result type: %T", result)
+	}
+
+	var ids []string
+	for _, id := range messageIDsIface {
+		ids = append(ids, id.(string))
+	}
+
+	return ids, nil
 }
 
 func (b *RedisBroker) ensureGroupExists(ctx context.Context) error {

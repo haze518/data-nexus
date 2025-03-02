@@ -18,14 +18,14 @@ const (
 
 type Logger struct {
 	maxLevel Level
-	out *log.Logger
-	mu sync.RWMutex
+	out      *log.Logger
+	mu       sync.RWMutex
 }
 
 func NewLogger(level Level, output io.Writer) *Logger {
 	return &Logger{
 		maxLevel: level,
-		out: log.New(output, "", log.LstdFlags),
+		out:      log.New(output, "", log.LstdFlags),
 	}
 }
 
@@ -55,7 +55,7 @@ func (l *Logger) Error(args ...any) {
 
 func (l *Logger) SetLevel(level Level) {
 	l.mu.Lock()
-    l.maxLevel = level
+	l.maxLevel = level
 	l.mu.Unlock()
 }
 
