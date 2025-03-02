@@ -59,12 +59,16 @@ func (r *redistributor) start(wg *sync.WaitGroup) {
 					}
 					if len(messageIDs) > 0 {
 						r.logger.Info(fmt.Sprintf("Successfully moved %d messages from server %s", len(messageIDs), srv))
-						continue
+						break
 					}
 				}
 			}
 		}
 	}()
+}
+
+func (h *redistributor) shutdown() {
+	h.done <- struct{}{}
 }
 
 func (r *redistributor) listInactiveServers() ([]string, error) {
