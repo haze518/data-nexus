@@ -60,8 +60,8 @@ func (r *redistributor) start(wg *sync.WaitGroup) {
 						continue
 					}
 					if len(metrics) > 0 {
-						for _, metric := range metrics {
-							r.msgCh <-metric
+						for _, m := range metrics {
+							r.msgCh <-m
 						}
 						r.logger.Info(fmt.Sprintf("Successfully moved %d messages from server %s", len(metrics), srv))
 						break

@@ -46,8 +46,8 @@ func TestRedistributor(t *testing.T) {
 	ch := make(chan *types.Metric, 3)
 	redistributor := newRedistributor(activeRs, 100*time.Millisecond, logger, ch)
 
-	wg := &sync.WaitGroup{}
-	redistributor.start(wg)
+	var wg sync.WaitGroup
+	redistributor.start(&wg)
 
 	var received []*types.Metric
 	for i := 0; i < 3; i++ {

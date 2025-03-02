@@ -11,4 +11,5 @@ type Broker interface {
 	SetServerState(ctx context.Context, state types.ServerState, ttl time.Duration) error
 	ListServers(ctx context.Context) (map[string]types.ServerState, error)
 	MoveInactiveServerMsgs(ctx context.Context, inactiveSrv string, batchSize int) ([]*types.Metric, error)
+	Consume(ctx context.Context, n int64) ([]*types.Metric, error)
 }
