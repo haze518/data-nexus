@@ -11,8 +11,11 @@ import (
 type Metric struct {
 	Name      string
 	Value     float64
+	Type      string
 	Timestamp time.Time
 	Labels    map[string]string
+
+	ID        *string
 }
 
 func Marshal(val *Metric) ([]byte, error) {
@@ -22,6 +25,7 @@ func Marshal(val *Metric) ([]byte, error) {
 	return proto.Marshal(&pb.Metric{
 		Name:      val.Name,
 		Value:     val.Value,
+		Type:      val.Type,
 		Timestamp: val.Timestamp.Unix(),
 		Labels:    val.Labels,
 	})
@@ -38,6 +42,7 @@ func Unmarshal(data []byte) (*Metric, error) {
 	return &Metric{
 		Name:      pbmetric.Name,
 		Value:     pbmetric.Value,
+		Type:      pbmetric.Type,
 		Timestamp: time.Unix(pbmetric.Timestamp, 0),
 		Labels:    pbmetric.Labels,
 	}, nil

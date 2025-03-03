@@ -29,6 +29,10 @@ func NewRedisBroker(ctx context.Context, config internal.RedisConfig, logger *lo
 	return &RedisBroker{client, config, logger, false}, nil
 }
 
+func (b *RedisBroker) Close() error {
+	return b.client.Close()
+}
+
 func (b *RedisBroker) Publish(ctx context.Context, val *types.Metric) error {
 	pbval, err := types.Marshal(val)
 	if err != nil {
@@ -79,10 +83,15 @@ func (b *RedisBroker) Consume(ctx context.Context, n int64) ([]*types.Metric, er
 			if err != nil {
 				return nil, fmt.Errorf("unmarshal: %w", err)
 			}
+			metric.ID = &data.ID
 			result = append(result, metric)
 		}
 	}
 	return result, nil
+}
+
+func (b *RedisBroker) AckCollected(ctx context.Context, ids ...string) error {
+	return b.client.XAck(ctx, b.config.StreamName, b.config.ConsumerGroup, ids...).Err()
 }
 
 func (b *RedisBroker) SetServerState(ctx context.Context, state types.ServerState, ttl time.Duration) error {
@@ -214,6 +223,7 @@ func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv st
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal: %w", err)
 		}
+		metric.ID = &messageID
 
 		metrics = append(metrics, metric)
 	}
