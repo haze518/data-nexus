@@ -1,7 +1,6 @@
-package datanexus
+package workers
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -12,16 +11,16 @@ import (
 	"github.com/haze518/data-nexus/internal/types"
 )
 
-type redistributor struct {
+type Redistributor struct {
 	interval time.Duration
 	done     chan struct{}
 	logger   *logging.Logger
 	broker   broker.Broker
-	msgCh    chan<- *types.Metric
+	msgCh    chan<- []*types.Metric
 }
 
-func newRedistributor(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh chan<- *types.Metric) *redistributor {
-	return &redistributor{
+func NewRedistributor(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh chan<- []*types.Metric) *Redistributor {
+	return &Redistributor{
 		broker:   broker,
 		interval: interval,
 		logger:   logger,
@@ -30,7 +29,7 @@ func newRedistributor(broker broker.Broker, interval time.Duration, logger *logg
 	}
 }
 
-func (r *redistributor) start(wg *sync.WaitGroup) {
+func (r *Redistributor) Start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -52,11 +51,11 @@ func (r *redistributor) start(wg *sync.WaitGroup) {
 	}()
 }
 
-func (r *redistributor) shutdown() {
-	r.done <- struct{}{}
+func (r *Redistributor) Shutdown() {
+	close(r.done)
 }
 
-func (r *redistributor) exec() error {
+func (r *Redistributor) exec() error {
 	servers, err := r.listInactiveServers()
 	if err != nil {
 		return fmt.Errorf("r.listInactiveServers: %w", err)
@@ -69,14 +68,12 @@ func (r *redistributor) exec() error {
 	})
 
 	for _, srv := range servers {
-		metrics, err := r.broker.MoveInactiveServerMsgs(context.Background(), srv, 50)
+		metrics, err := r.broker.MoveInactiveServerMsgs(srv, 50)
 		if err != nil {
 			return fmt.Errorf("broker.MoveInactiveServerMsgs: %w", err)
 		}
 		if len(metrics) > 0 {
-			for _, m := range metrics {
-				r.msgCh <-m
-			}
+			r.msgCh <- metrics
 			r.logger.Info(fmt.Sprintf("Successfully moved %d messages from server %s", len(metrics), srv))
 			return nil
 		}
@@ -84,8 +81,8 @@ func (r *redistributor) exec() error {
 	return nil
 }
 
-func (r *redistributor) listInactiveServers() ([]string, error) {
-	servers, err := r.broker.ListServers(context.Background())
+func (r *Redistributor) listInactiveServers() ([]string, error) {
+	servers, err := r.broker.ListServers()
 	if err != nil {
 		return nil, fmt.Errorf("r.broker.ListServers: %w", err)
 	}

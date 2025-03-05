@@ -1,7 +1,6 @@
-package datanexus
+package workers
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -9,7 +8,7 @@ import (
 	"github.com/haze518/data-nexus/internal/logging"
 )
 
-type acker struct {
+type Acker struct {
 	interval       time.Duration
 	done           chan struct{}
 	logger         *logging.Logger
@@ -17,17 +16,17 @@ type acker struct {
 	collectedIDsCh <-chan []string
 }
 
-func newAcker(broker broker.Broker, interval time.Duration, logger *logging.Logger, collectedIDsCh <-chan []string) *acker {
-	return &acker{
-		broker:   broker,
-		interval: interval,
-		logger:   logger,
-		done:     make(chan struct{}),
+func NewAcker(broker broker.Broker, interval time.Duration, logger *logging.Logger, collectedIDsCh <-chan []string) *Acker {
+	return &Acker{
+		broker:         broker,
+		interval:       interval,
+		logger:         logger,
+		done:           make(chan struct{}),
 		collectedIDsCh: collectedIDsCh,
 	}
 }
 
-func (a *acker) start(wg *sync.WaitGroup) {
+func (a *Acker) Start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -39,7 +38,7 @@ func (a *acker) start(wg *sync.WaitGroup) {
 				a.logger.Info("Acker done")
 				return
 			case ids := <-a.collectedIDsCh:
-				err := a.broker.AckCollected(context.Background(), ids...)
+				err := a.broker.AckCollected(ids...)
 				if err != nil {
 					a.logger.Error("unable to ack collected metrics", ids)
 				}
@@ -48,6 +47,6 @@ func (a *acker) start(wg *sync.WaitGroup) {
 	}()
 }
 
-func (a *acker) shutdown() {
-	a.done <-struct{}{}
+func (a *Acker) Shutdown() {
+	close(a.done)
 }

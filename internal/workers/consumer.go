@@ -1,7 +1,6 @@
-package datanexus
+package workers
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -10,17 +9,17 @@ import (
 	"github.com/haze518/data-nexus/internal/types"
 )
 
-type consumer struct {
+type Consumer struct {
 	interval     time.Duration
 	done         chan struct{}
 	logger       *logging.Logger
 	broker       broker.Broker
-	msgCh        chan<- *types.Metric
+	msgCh        chan<- []*types.Metric
 	consumeBatch int64
 }
 
-func newConsumer(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh chan<- *types.Metric, consumeBatch int64) *consumer {
-	return &consumer{
+func NewConsumer(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh chan<- []*types.Metric, consumeBatch int64) *Consumer {
+	return &Consumer{
 		broker:       broker,
 		interval:     interval,
 		logger:       logger,
@@ -30,7 +29,7 @@ func newConsumer(broker broker.Broker, interval time.Duration, logger *logging.L
 	}
 }
 
-func (c *consumer) start(wg *sync.WaitGroup) {
+func (c *Consumer) Start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -42,22 +41,20 @@ func (c *consumer) start(wg *sync.WaitGroup) {
 				c.logger.Info("Consumer done")
 				return
 			case <-ticker.C:
-				metrics, err := c.broker.Consume(context.Background(), c.consumeBatch)
+				metrics, err := c.broker.Consume(c.consumeBatch)
 				if err != nil {
-					c.logger.Error("could not consume messages")
+					c.logger.Error("could not consume messages", err.Error())
 					continue
 				}
-				var counter int
-				for _, m := range metrics {
-					c.msgCh <- m
-					counter++
+				if len(metrics) > 0 {
+					c.msgCh <- metrics
+					c.logger.Info("Successfulle consumed ", len(metrics), " messages")
 				}
-				c.logger.Info("Successfulle consumed ", counter, " messages")
 			}
 		}
 	}()
 }
 
-func (c *consumer) shutdown() {
-	c.done <- struct{}{}
+func (c *Consumer) Shutdown() {
+	close(c.done)
 }

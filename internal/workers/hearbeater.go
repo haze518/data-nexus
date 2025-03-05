@@ -1,7 +1,6 @@
-package datanexus
+package workers
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -11,15 +10,15 @@ import (
 	"github.com/haze518/data-nexus/internal/types"
 )
 
-type heartbeater struct {
+type Heartbeater struct {
 	interval time.Duration
 	done     chan struct{}
 	logger   *logging.Logger
 	broker   broker.Broker
 }
 
-func newHeartbeater(broker broker.Broker, interval time.Duration, logger *logging.Logger) *heartbeater {
-	return &heartbeater{
+func NewHeartbeater(broker broker.Broker, interval time.Duration, logger *logging.Logger) *Heartbeater {
+	return &Heartbeater{
 		broker:   broker,
 		interval: interval,
 		logger:   logger,
@@ -27,7 +26,7 @@ func newHeartbeater(broker broker.Broker, interval time.Duration, logger *loggin
 	}
 }
 
-func (h *heartbeater) start(wg *sync.WaitGroup) {
+func (h *Heartbeater) Start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -36,14 +35,14 @@ func (h *heartbeater) start(wg *sync.WaitGroup) {
 		for {
 			select {
 			case <-h.done:
-				err := h.broker.SetServerState(context.TODO(), types.ServerStateInactive, 60*time.Second)
+				err := h.broker.SetServerState(types.ServerStateInactive, 60*time.Second)
 				if err != nil {
 					h.logger.Error(fmt.Sprintf("Failed to SetServerState: %v", err))
 				}
 				h.logger.Info("Heartbeater done")
 				return
 			case <-ticker.C:
-				err := h.broker.SetServerState(context.TODO(), types.ServerStateActive, 60*time.Second)
+				err := h.broker.SetServerState(types.ServerStateActive, 60*time.Second)
 				if err != nil {
 					h.logger.Error(fmt.Sprintf("Failed to SetServerState: %v", err))
 				}
@@ -52,6 +51,6 @@ func (h *heartbeater) start(wg *sync.WaitGroup) {
 	}()
 }
 
-func (h *heartbeater) shutdown() {
-	h.done <- struct{}{}
+func (h *Heartbeater) Shutdown() {
+	close(h.done)
 }

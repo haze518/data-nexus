@@ -10,8 +10,9 @@ import (
 
 	"github.com/haze518/data-nexus/internal/testutil"
 	"github.com/haze518/data-nexus/internal/types"
-	"github.com/haze518/data-nexus/proto"
 	"google.golang.org/grpc"
+	pb "github.com/haze518/data-nexus/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDataNexus(t *testing.T) {
@@ -22,13 +23,11 @@ func TestDataNexus(t *testing.T) {
 	grpcAddr := "127.0.0.1:50051"
 	httpAddr := "127.0.0.1:8080"
 
-	config := &Config{
-		GRPCAddr:    grpcAddr,
-		HTTPAddr: httpAddr,
-		RedisConfig: testutil.TestRedisConfig(),
-	}
+	config := testutil.Config()
+	config.GRPCAddr = grpcAddr
+	config.HTTPAddr = httpAddr
 
-	srv, err := NewServer(config)
+	srv, err := NewServer(&config)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -46,9 +45,9 @@ func TestDataNexus(t *testing.T) {
 		t.Fatalf("failed to dial gRPC server: %v", err)
 	}
 	defer conn.Close()
-	grpcClient := proto.NewMetricsServiceClient(conn)
+	grpcClient := pb.NewMetricsServiceClient(conn)
 
-	metricReq := &proto.Metric{
+	metricReq := &pb.Metric{
 		Name:      "cpu_usage",
 		Value:     42.5,
 		Type:      "gauge",
@@ -86,47 +85,41 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 	client := testutil.SetupRedis(t)
 	defer testutil.CleanupRedis(t, client)
 
-	testConfig := testutil.TestRedisConfig()
-
-	deadConfig := &Config{
-		GRPCAddr:    "127.0.0.1:50051",
-		RedisConfig: testConfig,
-	}
+	deadConfig := testutil.Config()
+	deadConfig.GRPCAddr = "127.0.0.1:50051"
 	deadConfig.RedisConfig.ConsumerID = "dead_server"
-	deadServer, err := NewServer(deadConfig)
+	deadServer, err := NewServer(&deadConfig)
 	if err != nil {
 		t.Fatalf("failed to create dead server: %v", err)
 	}
 
-	activeConfig := &Config{
-		GRPCAddr:    "127.0.0.1:50052",
-		HTTPAddr:    "127.0.0.1:8080",
-		RedisConfig: testConfig,
-	}
+	activeConfig := testutil.Config()
+	activeConfig.GRPCAddr = "127.0.0.1:50052"
 	activeConfig.RedisConfig.ConsumerID = "active_server"
-	activeServer, err := NewServer(activeConfig)
+	activeServer, err := NewServer(&activeConfig)
 	if err != nil {
 		t.Fatalf("failed to create active server: %v", err)
 	}
 
-	err = deadServer.broker.SetServerState(context.Background(), types.ServerStateInactive, 10*time.Second)
+	err = deadServer.broker.SetServerState(types.ServerStateInactive, 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to set dead server state: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {
-		_, err = deadServer.broker.Publish(context.Background(), &types.Metric{
+		m, _ := proto.Marshal(&pb.Metric{
 			Name:      "cpu_usage",
 			Value:     42.5 + float64(i),
-			Timestamp: time.Now(),
+			Timestamp: time.Now().Unix(),
 			Labels:    map[string]string{"service": "test"},
 		})
+		_, err = deadServer.broker.Publish(context.Background(), m)
 		if err != nil {
 			t.Fatalf("failed to publish message: %v", err)
 		}
 	}
 
-	_, err = deadServer.broker.Consume(context.Background(), 3)
+	_, err = deadServer.broker.Consume(3)
 	if err != nil {
 		t.Fatalf("failed to consume messages from dead server: %v", err)
 	}

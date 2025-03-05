@@ -4,64 +4,65 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/haze518/data-nexus/internal"
 	"github.com/haze518/data-nexus/internal/logging"
 	"github.com/haze518/data-nexus/internal/types"
+	"github.com/haze518/data-nexus/pkg/config"
 	"github.com/redis/go-redis/v9"
 )
 
 type RedisBroker struct {
 	client               *redis.Client
-	config               internal.RedisConfig
+	config               config.RedisConfig
 	log                  *logging.Logger
-	consumerGroupCreated bool
+	consumerGroupCreated atomic.Bool
+	streamCreated        atomic.Bool
 }
 
-func NewRedisBroker(ctx context.Context, config internal.RedisConfig, logger *logging.Logger) (*RedisBroker, error) {
+func NewRedisBroker(config config.RedisConfig, logger *logging.Logger) (*RedisBroker, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     config.Addr,
 		Password: config.Password,
 		DB:       config.DB,
 		PoolSize: config.PoolSize,
 	})
-	return &RedisBroker{client, config, logger, false}, nil
+	return &RedisBroker{client, config, logger, atomic.Bool{}, atomic.Bool{}}, nil
 }
 
 func (b *RedisBroker) Close() error {
 	return b.client.Close()
 }
 
-func (b *RedisBroker) Publish(ctx context.Context, val *types.Metric) (string, error) {
-	pbval, err := types.Marshal(val)
-	if err != nil {
-		return "", fmt.Errorf("toProto: %w", err)
-	}
+func (b *RedisBroker) Publish(ctx context.Context, val []byte) (string, error) {
 	id, err := b.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: b.config.StreamName,
 		ID:     "*",
 		Values: map[string]interface{}{
-			"data": pbval,
+			"data": val,
 		},
 	}).Result()
+	if !b.streamCreated.Load() {
+		b.streamCreated.Store(true)
+	}
 	if err != nil {
 		return "", fmt.Errorf("client.XAdd: %w", err)
 	}
 	return id, nil
 }
 
-func (b *RedisBroker) Consume(ctx context.Context, n int64) ([]*types.Metric, error) {
-	err := b.ensureGroupExists(ctx)
+func (b *RedisBroker) Consume(n int64) ([]*types.Metric, error) {
+	err := b.ensureGroupExists()
 	if err != nil {
 		return nil, fmt.Errorf("s.ensureGroupExists: %w", err)
 	}
-	streams, err := b.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+	streams, err := b.client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
 		Streams:  []string{b.config.StreamName, ">"},
 		Group:    b.config.ConsumerGroup,
 		Consumer: b.config.ConsumerID,
 		Count:    n,
-		Block:    5000 * time.Millisecond,
+		Block:    5 * time.Second,
 		NoAck:    false,
 	}).Result()
 
@@ -90,27 +91,27 @@ func (b *RedisBroker) Consume(ctx context.Context, n int64) ([]*types.Metric, er
 	return result, nil
 }
 
-func (b *RedisBroker) AckCollected(ctx context.Context, ids ...string) error {
-	return b.client.XAck(ctx, b.config.StreamName, b.config.ConsumerGroup, ids...).Err()
+func (b *RedisBroker) AckCollected(ids ...string) error {
+	return b.client.XAck(context.Background(), b.config.StreamName, b.config.ConsumerGroup, ids...).Err()
 }
 
-func (b *RedisBroker) SetServerState(ctx context.Context, state types.ServerState, ttl time.Duration) error {
+func (b *RedisBroker) SetServerState(state types.ServerState, ttl time.Duration) error {
 	msg := fmt.Sprintf("state:%s", b.config.ConsumerID)
-	return b.client.Set(ctx, msg, state.String(), ttl).Err()
+	return b.client.Set(context.Background(), msg, state.String(), ttl).Err()
 }
 
-func (b *RedisBroker) ListServers(ctx context.Context) (map[string]types.ServerState, error) {
+func (b *RedisBroker) ListServers() (map[string]types.ServerState, error) {
 	var cursor uint64
 	serverStates := make(map[string]types.ServerState)
 
 	for {
-		keys, newCursor, err := b.client.Scan(ctx, cursor, "state:*", 100).Result()
+		keys, newCursor, err := b.client.Scan(context.Background(), cursor, "state:*", 100).Result()
 		if err != nil {
 			return nil, fmt.Errorf("client.Scan: %w", err)
 		}
 
 		if len(keys) > 0 {
-			values, err := b.client.MGet(ctx, keys...).Result()
+			values, err := b.client.MGet(context.Background(), keys...).Result()
 			if err != nil {
 				return nil, fmt.Errorf("client.MGet: %w", err)
 			}
@@ -134,7 +135,7 @@ func (b *RedisBroker) ListServers(ctx context.Context) (map[string]types.ServerS
 	return serverStates, nil
 }
 
-func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv string, batchSize int) ([]*types.Metric, error) {
+func (b *RedisBroker) MoveInactiveServerMsgs(inactiveSrv string, batchSize int) ([]*types.Metric, error) {
 	if inactiveSrv == b.config.ConsumerID {
 		return nil, nil
 	}
@@ -189,7 +190,7 @@ func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv st
 
 	args := []interface{}{b.config.ConsumerGroup, b.config.ConsumerID, batchSize, time.Now().Unix(), inactiveSrv}
 
-	result, err := script.Run(ctx, b.client, keys, args...).Result()
+	result, err := script.Run(context.Background(), b.client, keys, args...).Result()
 	if err != nil {
 		return nil, fmt.Errorf("script.Run: %w", err)
 	}
@@ -233,11 +234,14 @@ func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv st
 	return metrics, nil
 }
 
-func (b *RedisBroker) ensureGroupExists(ctx context.Context) error {
-	if b.consumerGroupCreated {
+func (b *RedisBroker) ensureGroupExists() error {
+	if !b.streamCreated.Load() {
+		return fmt.Errorf("stream is not created yet, need init publish")
+	}
+	if b.consumerGroupCreated.Load() {
 		return nil
 	}
-	groups, err := b.client.XInfoGroups(ctx, b.config.StreamName).Result()
+	groups, err := b.client.XInfoGroups(context.Background(), b.config.StreamName).Result()
 	if err != nil {
 		return fmt.Errorf("client.XInfoGroups: %w", err)
 	}
@@ -251,11 +255,11 @@ func (b *RedisBroker) ensureGroupExists(ctx context.Context) error {
 
 	if !groupExists {
 		b.log.Info(fmt.Sprintf("Consumer group %v does not exist, creating...", b.config.ConsumerGroup))
-		err = b.client.XGroupCreate(ctx, b.config.StreamName, b.config.ConsumerGroup, "0").Err()
+		err = b.client.XGroupCreate(context.Background(), b.config.StreamName, b.config.ConsumerGroup, "0").Err()
 		if err != nil {
 			return fmt.Errorf("client.XGroupCreate: %w", err)
 		}
-		b.consumerGroupCreated = true
+		b.consumerGroupCreated.Store(true)
 	}
 	return nil
 }

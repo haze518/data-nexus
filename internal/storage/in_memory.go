@@ -24,15 +24,18 @@ func (s *InMemoryStorage) Insert(val ...*types.Metric) {
 	s.data = append(s.data, val...)
 }
 
-func (s *InMemoryStorage) Pop() (*types.Metric, bool) {
+func (s *InMemoryStorage) Drain() ([]*types.Metric, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if len(s.data) == 0 {
 		return nil, false
 	}
-	last := s.data[len(s.data) - 1]
-	s.data = s.data[:len(s.data) - 1]
-	return last, true
+
+	vals := s.data
+	s.data = nil
+
+	return vals, true
 }
 
 func (s *InMemoryStorage) Len() int {

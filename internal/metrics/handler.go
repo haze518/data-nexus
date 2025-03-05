@@ -17,11 +17,11 @@ func Handler(storage storage.Storage, writeCh chan<- []string) http.Handler {
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		idsToAck := make([]string, 0, storage.Len())
-		for {
-			m, ok := storage.Pop()
-			if !ok {
-				break
-			}
+		metrics, ok := storage.Drain()
+		if !ok {
+			return
+		}
+		for _, m := range metrics {
 			if m.ID != nil {
 				idsToAck = append(idsToAck, *m.ID)
 			}
