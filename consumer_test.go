@@ -25,7 +25,7 @@ func TestConsumer(t *testing.T) {
 	consumer.start(&wg)
 
 	for i := 0; i < 3; i++ {
-		err := rs.Publish(ctx, &types.Metric{
+		_, err := rs.Publish(ctx, &types.Metric{
 			Name:      "cpu_usage",
 			Value:     42.5 + float64(i),
 			Timestamp: time.Now(),

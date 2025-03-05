@@ -36,6 +36,7 @@ func (a *acker) start(wg *sync.WaitGroup) {
 		for {
 			select {
 			case <-a.done:
+				a.logger.Info("Acker done")
 				return
 			case ids := <-a.collectedIDsCh:
 				err := a.broker.AckCollected(context.Background(), ids...)

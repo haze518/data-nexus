@@ -43,16 +43,18 @@ func (s *dataSinker) start(wg *sync.WaitGroup) {
 		for {
 			select {
 			case <-s.done:
+				s.logger.Info("DataSinker done")
 				return
 			case <-ticker.C:
-				for val := range s.msgCh {
+				select {
+				case val := <-s.msgCh:
 					batch = append(batch, val)
 					if len(batch) == s.batchLen {
-						break
+						s.storage.Insert(batch...)
+						batch = batch[:0]		
 					}
+				default:
 				}
-				s.storage.Insert(batch...)
-				batch = batch[:0]
 			}
 		}
 	}()

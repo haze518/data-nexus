@@ -40,6 +40,7 @@ func (h *heartbeater) start(wg *sync.WaitGroup) {
 				if err != nil {
 					h.logger.Error(fmt.Sprintf("Failed to SetServerState: %v", err))
 				}
+				h.logger.Info("Heartbeater done")
 				return
 			case <-ticker.C:
 				err := h.broker.SetServerState(context.TODO(), types.ServerStateActive, 60*time.Second)

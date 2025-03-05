@@ -39,6 +39,7 @@ func (c *consumer) start(wg *sync.WaitGroup) {
 		for {
 			select {
 			case <-c.done:
+				c.logger.Info("Consumer done")
 				return
 			case <-ticker.C:
 				metrics, err := c.broker.Consume(context.Background(), c.consumeBatch)
@@ -51,7 +52,7 @@ func (c *consumer) start(wg *sync.WaitGroup) {
 					c.msgCh <- m
 					counter++
 				}
-				c.logger.Info("Successfulle consumed ", counter+1, " messages")
+				c.logger.Info("Successfulle consumed ", counter, " messages")
 			}
 		}
 	}()

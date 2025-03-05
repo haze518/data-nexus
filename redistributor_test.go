@@ -28,7 +28,7 @@ func TestRedistributor(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		err = inactiveRs.Publish(ctx, &types.Metric{
+		_, err = inactiveRs.Publish(ctx, &types.Metric{
 			Name:      "cpu_usage",
 			Value:     42.5 + float64(i),
 			Timestamp: time.Now(),

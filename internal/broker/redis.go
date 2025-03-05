@@ -33,12 +33,12 @@ func (b *RedisBroker) Close() error {
 	return b.client.Close()
 }
 
-func (b *RedisBroker) Publish(ctx context.Context, val *types.Metric) error {
+func (b *RedisBroker) Publish(ctx context.Context, val *types.Metric) (string, error) {
 	pbval, err := types.Marshal(val)
 	if err != nil {
-		return fmt.Errorf("toProto: %w", err)
+		return "", fmt.Errorf("toProto: %w", err)
 	}
-	_, err = b.client.XAdd(ctx, &redis.XAddArgs{
+	id, err := b.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: b.config.StreamName,
 		ID:     "*",
 		Values: map[string]interface{}{
@@ -46,9 +46,9 @@ func (b *RedisBroker) Publish(ctx context.Context, val *types.Metric) error {
 		},
 	}).Result()
 	if err != nil {
-		return fmt.Errorf("client.XAdd: %w", err)
+		return "", fmt.Errorf("client.XAdd: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
 func (b *RedisBroker) Consume(ctx context.Context, n int64) ([]*types.Metric, error) {
@@ -135,6 +135,9 @@ func (b *RedisBroker) ListServers(ctx context.Context) (map[string]types.ServerS
 }
 
 func (b *RedisBroker) MoveInactiveServerMsgs(ctx context.Context, inactiveSrv string, batchSize int) ([]*types.Metric, error) {
+	if inactiveSrv == b.config.ConsumerID {
+		return nil, nil
+	}
 	script := redis.NewScript(`
 		local stateKey = KEYS[1]
 		local lockKey = KEYS[2]

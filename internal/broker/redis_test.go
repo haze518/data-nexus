@@ -27,7 +27,7 @@ func TestPublish(t *testing.T) {
 		t.Fatalf("redisStream should not be nil")
 	}
 
-	err = rs.Publish(ctx, &types.Metric{
+	_, err = rs.Publish(ctx, &types.Metric{
 		Name:      "cpu_usage",
 		Value:     42.5,
 		Timestamp: time.Now(),
@@ -66,7 +66,7 @@ func TestConsume(t *testing.T) {
 		Timestamp: time.Now(),
 	}
 
-	err = rs.Publish(ctx, metric)
+	_, err = rs.Publish(ctx, metric)
 	if err != nil {
 		t.Fatalf("failed to publish message: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestMoveInactiveServerMsgs(t *testing.T) {
 	activeRs := newRedis(ctx, "active_server", logger)
 
 	for i := 0; i < 3; i++ {
-		err := inactiveRs.Publish(ctx, &types.Metric{
+		_, err := inactiveRs.Publish(ctx, &types.Metric{
 			Name:      "cpu_usage",
 			Value:     float64(i) + 42.5,
 			Timestamp: time.Now(),
