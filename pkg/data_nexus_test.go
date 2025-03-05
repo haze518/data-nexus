@@ -22,13 +22,11 @@ func TestDataNexus(t *testing.T) {
 	grpcAddr := "127.0.0.1:50051"
 	httpAddr := "127.0.0.1:8080"
 
-	config := &Config{
-		GRPCAddr:    grpcAddr,
-		HTTPAddr: httpAddr,
-		RedisConfig: testutil.TestRedisConfig(),
-	}
+	config := testutil.Config()
+	config.GRPCAddr = grpcAddr
+	config.HTTPAddr = httpAddr
 
-	srv, err := NewServer(config)
+	srv, err := NewServer(&config)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -86,30 +84,23 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 	client := testutil.SetupRedis(t)
 	defer testutil.CleanupRedis(t, client)
 
-	testConfig := testutil.TestRedisConfig()
-
-	deadConfig := &Config{
-		GRPCAddr:    "127.0.0.1:50051",
-		RedisConfig: testConfig,
-	}
+	deadConfig := testutil.Config()
+	deadConfig.GRPCAddr = "127.0.0.1:50051"
 	deadConfig.RedisConfig.ConsumerID = "dead_server"
-	deadServer, err := NewServer(deadConfig)
+	deadServer, err := NewServer(&deadConfig)
 	if err != nil {
 		t.Fatalf("failed to create dead server: %v", err)
 	}
 
-	activeConfig := &Config{
-		GRPCAddr:    "127.0.0.1:50052",
-		HTTPAddr:    "127.0.0.1:8080",
-		RedisConfig: testConfig,
-	}
+	activeConfig := testutil.Config()
+	activeConfig.GRPCAddr = "127.0.0.1:50052"
 	activeConfig.RedisConfig.ConsumerID = "active_server"
-	activeServer, err := NewServer(activeConfig)
+	activeServer, err := NewServer(&activeConfig)
 	if err != nil {
 		t.Fatalf("failed to create active server: %v", err)
 	}
 
-	err = deadServer.broker.SetServerState(context.Background(), types.ServerStateInactive, 10*time.Second)
+	err = deadServer.broker.SetServerState(types.ServerStateInactive, 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to set dead server state: %v", err)
 	}
@@ -126,7 +117,7 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 		}
 	}
 
-	_, err = deadServer.broker.Consume(context.Background(), 3)
+	_, err = deadServer.broker.Consume(3)
 	if err != nil {
 		t.Fatalf("failed to consume messages from dead server: %v", err)
 	}

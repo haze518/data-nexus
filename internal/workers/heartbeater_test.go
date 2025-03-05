@@ -1,7 +1,6 @@
-package datanexus
+package workers
 
 import (
-	"context"
 	"os"
 	"sync"
 	"testing"
@@ -18,20 +17,19 @@ func TestHeartbeater(t *testing.T) {
 	defer testutil.CleanupRedis(t, client)
 
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
-	ctx := context.Background()
-	testRedisConfig := testutil.TestRedisConfig()
-	rs, err := broker.NewRedisBroker(ctx, testRedisConfig, logger)
+	testRedisConfig := testutil.Config().RedisConfig
+	rs, err := broker.NewRedisBroker(testRedisConfig, logger)
 	if err != nil {
 		t.Fatalf("broker.NewRedisBroker: %v", err)
 	}
 
-	heartbeater := newHeartbeater(rs, 1*time.Second, logger)
-	heartbeater.start(&sync.WaitGroup{})
+	heartbeater := NewHeartbeater(rs, 1*time.Second, logger)
+	heartbeater.Start(&sync.WaitGroup{})
 
 	time.Sleep(2 * time.Second)
 
 	// check active state
-	servers, err := rs.ListServers(context.Background())
+	servers, err := rs.ListServers()
 	if err != nil {
 		t.Fatalf("rs.ListActiveServers: %v", err)
 	}
@@ -46,12 +44,12 @@ func TestHeartbeater(t *testing.T) {
 		t.Fatalf("incorrect server state, want: %v, got: %v", types.ServerStateActive, val)
 	}
 
-	heartbeater.shutdown()
+	heartbeater.Shutdown()
 
 	time.Sleep(1 * time.Second)
 
 	// check inactive state
-	servers, err = rs.ListServers(context.Background())
+	servers, err = rs.ListServers()
 	if err != nil {
 		t.Fatalf("rs.ListActiveServers: %v", err)
 	}

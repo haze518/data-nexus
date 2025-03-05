@@ -1,4 +1,4 @@
-package datanexus
+package workers
 
 import (
 	"context"
@@ -19,10 +19,10 @@ func TestRedistributor(t *testing.T) {
 	client := testutil.SetupRedis(t)
 	defer testutil.CleanupRedis(t, client)
 
-	inactiveRs := newRedis(ctx, "dead_server", logger)
-	activeRs := newRedis(ctx, "active_server", logger)
+	inactiveRs := newRedis("dead_server", logger)
+	activeRs := newRedis("active_server", logger)
 
-	err := inactiveRs.SetServerState(ctx, types.ServerStateInactive, 10*time.Second)
+	err := inactiveRs.SetServerState(types.ServerStateInactive, 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to set server state: %v", err)
 	}
@@ -38,16 +38,16 @@ func TestRedistributor(t *testing.T) {
 		}
 	}
 
-	_, err = inactiveRs.Consume(ctx, 3)
+	_, err = inactiveRs.Consume(3)
 	if err != nil {
 		t.Fatalf("failed to consume messages: %v", err)
 	}
 
 	ch := make(chan *types.Metric, 3)
-	redistributor := newRedistributor(activeRs, 100*time.Millisecond, logger, ch)
+	redistributor := NewRedistributor(activeRs, 100*time.Millisecond, logger, ch)
 
 	var wg sync.WaitGroup
-	redistributor.start(&wg)
+	redistributor.Start(&wg)
 
 	var received []*types.Metric
 	for i := 0; i < 3; i++ {
@@ -63,14 +63,14 @@ func TestRedistributor(t *testing.T) {
 		t.Fatalf("expected 3 messages, got %d", len(received))
 	}
 
-	redistributor.shutdown()
+	redistributor.Shutdown()
 	wg.Wait()
 }
 
-func newRedis(ctx context.Context, name string, logger *logging.Logger) *broker.RedisBroker {
-	testRedisConfig := testutil.TestRedisConfig()
+func newRedis(name string, logger *logging.Logger) *broker.RedisBroker {
+	testRedisConfig := testutil.Config().RedisConfig
 	testRedisConfig.ConsumerID = name
-	rs, err := broker.NewRedisBroker(ctx, testRedisConfig, logger)
+	rs, err := broker.NewRedisBroker(testRedisConfig, logger)
 	if err != nil {
 		panic("failed to create stream")
 	}

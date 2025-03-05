@@ -1,4 +1,4 @@
-package datanexus
+package workers
 
 import (
 	"sync"
@@ -10,7 +10,7 @@ import (
 	"github.com/haze518/data-nexus/internal/types"
 )
 
-type dataSinker struct {
+type Sinker struct {
 	interval time.Duration
 	done     chan struct{}
 	logger   *logging.Logger
@@ -20,8 +20,8 @@ type dataSinker struct {
 	batchLen int
 }
 
-func newDataSinker(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh <-chan *types.Metric, storage storage.Storage, batchLen int) *dataSinker {
-	return &dataSinker{
+func NewSinker(broker broker.Broker, interval time.Duration, logger *logging.Logger, msgCh <-chan *types.Metric, storage storage.Storage, batchLen int) *Sinker {
+	return &Sinker{
 		broker:   broker,
 		interval: interval,
 		logger:   logger,
@@ -32,7 +32,7 @@ func newDataSinker(broker broker.Broker, interval time.Duration, logger *logging
 	}
 }
 
-func (s *dataSinker) start(wg *sync.WaitGroup) {
+func (s *Sinker) Start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -51,7 +51,7 @@ func (s *dataSinker) start(wg *sync.WaitGroup) {
 					batch = append(batch, val)
 					if len(batch) == s.batchLen {
 						s.storage.Insert(batch...)
-						batch = batch[:0]		
+						batch = batch[:0]
 					}
 				default:
 				}
@@ -60,6 +60,6 @@ func (s *dataSinker) start(wg *sync.WaitGroup) {
 	}()
 }
 
-func (s *dataSinker) shutdown() {
+func (s *Sinker) Shutdown() {
 	s.done <- struct{}{}
 }

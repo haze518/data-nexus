@@ -1,4 +1,4 @@
-package datanexus
+package workers
 
 import (
 	"context"
@@ -18,11 +18,11 @@ func TestConsumer(t *testing.T) {
 	client := testutil.SetupRedis(t)
 	defer testutil.CleanupRedis(t, client)
 
-	rs := newRedis(ctx, "srv", logger)
+	rs := newRedis("srv", logger)
 	var wg sync.WaitGroup
 	ch := make(chan *types.Metric, 3)
-	consumer := newConsumer(rs, 100*time.Millisecond, logger, ch, 3)
-	consumer.start(&wg)
+	consumer := NewConsumer(rs, 100*time.Millisecond, logger, ch, 3)
+	consumer.Start(&wg)
 
 	for i := 0; i < 3; i++ {
 		_, err := rs.Publish(ctx, &types.Metric{
@@ -49,6 +49,6 @@ func TestConsumer(t *testing.T) {
 		t.Fatalf("expected 3 messages, got %d", len(received))
 	}
 
-	consumer.shutdown()
+	consumer.Shutdown()
 	wg.Wait()
 }
