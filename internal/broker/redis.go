@@ -13,14 +13,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// RedisBroker is an implementation of the Broker interface using Redis Streams.
 type RedisBroker struct {
-	client               *redis.Client
-	config               config.RedisConfig
-	log                  *logging.Logger
-	consumerGroupCreated atomic.Bool
-	streamCreated        atomic.Bool
+	client               *redis.Client      // Redis client instance
+	config               config.RedisConfig // Configuration for Redis connection and stream setup
+	log                  *logging.Logger    // Logger for internal logging
+	consumerGroupCreated atomic.Bool        // Ensures consumer group is only created once
+	streamCreated        atomic.Bool        // Ensures stream is created before operations
 }
 
+// NewRedisBroker initializes a new RedisBroker with the given config and logger.
+// It returns an error if Redis client creation fails.
 func NewRedisBroker(config config.RedisConfig, logger *logging.Logger) (*RedisBroker, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     config.Addr,
@@ -31,10 +34,12 @@ func NewRedisBroker(config config.RedisConfig, logger *logging.Logger) (*RedisBr
 	return &RedisBroker{client, config, logger, atomic.Bool{}, atomic.Bool{}}, nil
 }
 
+// Close gracefully closes the Redis client connection.
 func (b *RedisBroker) Close() error {
 	return b.client.Close()
 }
 
+// Publish adds a single message to the Redis stream.
 func (b *RedisBroker) Publish(ctx context.Context, val []byte) (string, error) {
 	id, err := b.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: b.config.StreamName,
@@ -52,6 +57,33 @@ func (b *RedisBroker) Publish(ctx context.Context, val []byte) (string, error) {
 	return id, nil
 }
 
+// PublishBatch publishes multiple messages to the Redis stream in a pipeline.
+// Returns the IDs of published messages.
+func (b *RedisBroker) PublishBatch(ctx context.Context, vals [][]byte) ([]string, error) {
+	tx := b.client.TxPipeline()
+	ids := make([]string, 0, len(vals))
+
+	for _, val := range vals {
+		cmd := tx.XAdd(ctx, &redis.XAddArgs{
+			Stream: b.config.StreamName,
+			ID:     "*",
+			Values: map[string]interface{}{"data": val},
+		})
+		ids = append(ids, cmd.Val())
+	}
+	if !b.streamCreated.Load() {
+		b.streamCreated.Store(true)
+	}
+
+	_, err := tx.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("tx.Exec: %w", err)
+	}
+	return ids, nil
+}
+
+// Consume reads up to 'n' messages from the Redis stream using consumer groups.
+// It blocks for up to 5 seconds if no messages are available.
 func (b *RedisBroker) Consume(n int64) ([]*types.Metric, error) {
 	err := b.ensureGroupExists()
 	if err != nil {
@@ -80,7 +112,7 @@ func (b *RedisBroker) Consume(n int64) ([]*types.Metric, error) {
 				b.log.Error("skip value due to incorrect format")
 				continue
 			}
-			metric, err := types.Unmarshal([]byte(rawData))
+			metric, err := types.Unmarshal(rawData)
 			if err != nil {
 				return nil, fmt.Errorf("unmarshal: %w", err)
 			}
@@ -91,15 +123,19 @@ func (b *RedisBroker) Consume(n int64) ([]*types.Metric, error) {
 	return result, nil
 }
 
+// AckCollected acknowledges the successful processing of messages by ID.
 func (b *RedisBroker) AckCollected(ids ...string) error {
 	return b.client.XAck(context.Background(), b.config.StreamName, b.config.ConsumerGroup, ids...).Err()
 }
 
+// SetServerState sets the current server's state (active/inactive) with a TTL.
 func (b *RedisBroker) SetServerState(state types.ServerState, ttl time.Duration) error {
 	msg := fmt.Sprintf("state:%s", b.config.ConsumerID)
 	return b.client.Set(context.Background(), msg, state.String(), ttl).Err()
 }
 
+// ListServers returns the states of all known servers in the system,
+// based on Redis key pattern `state:*`.
 func (b *RedisBroker) ListServers() (map[string]types.ServerState, error) {
 	var cursor uint64
 	serverStates := make(map[string]types.ServerState)
@@ -135,6 +171,9 @@ func (b *RedisBroker) ListServers() (map[string]types.ServerState, error) {
 	return serverStates, nil
 }
 
+// MoveInactiveServerMsgs reclaims unacknowledged messages from an inactive server
+// using Lua scripting for atomic execution. Only one Redis client can claim
+// messages from a given inactive server at a time.
 func (b *RedisBroker) MoveInactiveServerMsgs(inactiveSrv string, batchSize int) ([]*types.Metric, error) {
 	if inactiveSrv == b.config.ConsumerID {
 		return nil, nil
@@ -223,7 +262,7 @@ func (b *RedisBroker) MoveInactiveServerMsgs(inactiveSrv string, batchSize int) 
 			continue
 		}
 
-		metric, err := types.Unmarshal([]byte(rawData))
+		metric, err := types.Unmarshal(rawData)
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal: %w", err)
 		}
@@ -234,6 +273,8 @@ func (b *RedisBroker) MoveInactiveServerMsgs(inactiveSrv string, batchSize int) 
 	return metrics, nil
 }
 
+// ensureGroupExists ensures that the Redis consumer group exists.
+// If it doesn't, the group is created. This method is idempotent.
 func (b *RedisBroker) ensureGroupExists() error {
 	if !b.streamCreated.Load() {
 		return fmt.Errorf("stream is not created yet, need init publish")

@@ -6,6 +6,7 @@ option go_package = "github.com/haze518/data-nexus/proto";
 
 service MetricsService {
   rpc IngestMetric(Metric) returns (IngestResponse);
+  rpc IngestMetrics(BatchMetrics) returns (BatchIngestResponse);
 }
 
 message Metric {
@@ -16,6 +17,14 @@ message Metric {
     map<string, string> labels = 5;
 }
 
+message BatchMetrics {
+  repeated Metric metrics = 1;
+}
+
 message IngestResponse {
     string eventId = 1;
+}
+
+message BatchIngestResponse {
+  repeated string eventIds = 1;
 }

@@ -23,6 +23,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MetricsServiceClient interface {
 	IngestMetric(ctx context.Context, in *Metric, opts ...grpc.CallOption) (*IngestResponse, error)
+	IngestMetrics(ctx context.Context, in *BatchMetrics, opts ...grpc.CallOption) (*BatchIngestResponse, error)
 }
 
 type metricsServiceClient struct {
@@ -42,11 +43,21 @@ func (c *metricsServiceClient) IngestMetric(ctx context.Context, in *Metric, opt
 	return out, nil
 }
 
+func (c *metricsServiceClient) IngestMetrics(ctx context.Context, in *BatchMetrics, opts ...grpc.CallOption) (*BatchIngestResponse, error) {
+	out := new(BatchIngestResponse)
+	err := c.cc.Invoke(ctx, "/data_nexus.MetricsService/IngestMetrics", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MetricsServiceServer is the server API for MetricsService service.
 // All implementations must embed UnimplementedMetricsServiceServer
 // for forward compatibility
 type MetricsServiceServer interface {
 	IngestMetric(context.Context, *Metric) (*IngestResponse, error)
+	IngestMetrics(context.Context, *BatchMetrics) (*BatchIngestResponse, error)
 	mustEmbedUnimplementedMetricsServiceServer()
 }
 
@@ -56,6 +67,9 @@ type UnimplementedMetricsServiceServer struct {
 
 func (UnimplementedMetricsServiceServer) IngestMetric(context.Context, *Metric) (*IngestResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IngestMetric not implemented")
+}
+func (UnimplementedMetricsServiceServer) IngestMetrics(context.Context, *BatchMetrics) (*BatchIngestResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IngestMetrics not implemented")
 }
 func (UnimplementedMetricsServiceServer) mustEmbedUnimplementedMetricsServiceServer() {}
 
@@ -88,6 +102,24 @@ func _MetricsService_IngestMetric_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MetricsService_IngestMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchMetrics)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MetricsServiceServer).IngestMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/data_nexus.MetricsService/IngestMetrics",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MetricsServiceServer).IngestMetrics(ctx, req.(*BatchMetrics))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MetricsService_ServiceDesc is the grpc.ServiceDesc for MetricsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -98,6 +130,10 @@ var MetricsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IngestMetric",
 			Handler:    _MetricsService_IngestMetric_Handler,
+		},
+		{
+			MethodName: "IngestMetrics",
+			Handler:    _MetricsService_IngestMetrics_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

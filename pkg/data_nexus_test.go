@@ -10,8 +10,8 @@ import (
 
 	"github.com/haze518/data-nexus/internal/testutil"
 	"github.com/haze518/data-nexus/internal/types"
-	"google.golang.org/grpc"
 	pb "github.com/haze518/data-nexus/proto"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
