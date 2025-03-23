@@ -14,29 +14,32 @@ import (
 //
 // Note: A buffer limit is not currently enforced (see TODO).
 type InMemoryStorage struct {
-	data []*types.Metric // Slice that holds all inserted metrics
-	mu   sync.Mutex      // Mutex to ensure thread-safe access
+	data map[string][]*types.Metric // Slice that holds all inserted metrics
+	mu   sync.RWMutex               // Mutex to ensure thread-safe access
 }
 
 // NewInMemoryStorage returns a new instance of InMemoryStorage with an empty metric buffer.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
-		data: make([]*types.Metric, 0),
-		mu:   sync.Mutex{},
+		data: make(map[string][]*types.Metric),
+		mu:   sync.RWMutex{},
 	}
 }
 
 // Insert adds one or more metrics to the storage buffer.
 // It locks the buffer to allow safe concurrent use.
-func (s *InMemoryStorage) Insert(val ...*types.Metric) {
+func (s *InMemoryStorage) Insert(metrics ...*types.Metric) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.data = append(s.data, val...)
+
+	for _, m := range metrics {
+		s.data[m.Name] = append(s.data[m.Name], m)
+	}
 }
 
 // Drain returns all stored metrics and clears the buffer.
 // The second return value is false if the buffer was already empty.
-func (s *InMemoryStorage) Drain() ([]*types.Metric, bool) {
+func (s *InMemoryStorage) Drain() (map[string][]*types.Metric, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -45,12 +48,19 @@ func (s *InMemoryStorage) Drain() ([]*types.Metric, bool) {
 	}
 
 	vals := s.data
-	s.data = nil
+	s.data = make(map[string][]*types.Metric)
 
 	return vals, true
 }
 
 // Len returns the current number of stored metrics.
 func (s *InMemoryStorage) Len() int {
-	return len(s.data)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, group := range s.data {
+		count += len(group)
+	}
+	return count
 }

@@ -14,6 +14,7 @@ import (
 // and publishes them to the broker in a single batch operation.
 // On success, it returns a BatchIngestResponse containing a list of assigned event IDs.
 // On failure, it returns an appropriate error.
+// TODO add validation
 func (s *Server) IngestMetrics(ctx context.Context, req *pb.BatchMetrics) (*pb.BatchIngestResponse, error) {
 	vals := make([][]byte, 0, len(req.Metrics))
 	for _, m := range req.Metrics {

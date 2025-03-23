@@ -20,55 +20,54 @@ import (
 // The handler responds with HTTP 200 OK even if there are no metrics to export.
 func Handler(storage storage.Storage, writeCh chan<- []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		metrics, ok := storage.Drain()
-		if !ok || len(metrics) == 0 {
+		mlen := storage.Len()
+		drainedMetrics, ok := storage.Drain()
+		if !ok || mlen == 0 {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		idsToAck := make([]string, 0, len(metrics))
+		idsToAck := make([]string, 0, mlen)
 
 		bw := bufio.NewWriter(w)
 		defer bw.Flush()
 
 		var sb strings.Builder
 
-		for _, m := range metrics {
-			// Collect IDs for acknowledgment
-			if m.ID != nil {
-				idsToAck = append(idsToAck, *m.ID)
+		for name, metrics := range drainedMetrics {
+			if len(metrics) == 0 {
+				continue
 			}
 
-			// Write HELP and TYPE metadata
-			fmt.Fprintf(bw, "# HELP %s Automatically exported metric\n", m.Name)
-			fmt.Fprintf(bw, "# TYPE %s %s\n", m.Name, m.Type)
+			mtype := metrics[0].Type
+			fmt.Fprintf(bw, "# TYPE %s %s\n", name, mtype)
 
-			// Build label string if any labels exist
-			sb.Reset()
-			sb.WriteByte('{')
-			i := 0
-			for k, v := range m.Labels {
-				if i > 0 {
-					sb.WriteByte(',')
+			for _, m := range metrics {
+				if m.ID != nil {
+					idsToAck = append(idsToAck, *m.ID)
 				}
-				fmt.Fprintf(&sb, `%s="%s"`, k, v)
-				i++
-			}
-			sb.WriteByte('}')
-			label := ""
-			if i > 0 {
-				label = sb.String()
-			}
+				sb.Reset()
+				sb.WriteByte('{')
+				var i int
+				for k, v := range m.Labels {
+					if i > 0 {
+						sb.WriteByte(',')
+					}
+					fmt.Fprintf(&sb, `%s="%s"`, k, v)
+					i++
+				}
+				sb.WriteByte('}')
+				var label string
+				if i > 0 {
+					label = sb.String()
+				}
+				ts := m.Timestamp.UnixNano() / int64(time.Millisecond)
 
-			// Convert timestamp to milliseconds
-			ts := m.Timestamp.UnixNano() / int64(time.Millisecond)
-
-			// Write metric line
-			fmt.Fprintf(bw, "%s%s %v %d\n", m.Name, label, m.Value, ts)
+				fmt.Fprintf(bw, "%s%s %v %d\n", m.Name, label, m.Value, ts)
+			}
 		}
 
-		// Acknowledge collected IDs asynchronously
 		go func() {
 			writeCh <- idsToAck
 		}()

@@ -13,6 +13,7 @@ import (
 //
 // It returns an IngestResponse containing the assigned event ID if successful.
 // If serialization or publishing fails, it returns an appropriate error.
+// TODO add validation
 func (s *Server) IngestMetric(ctx context.Context, metric *pb.Metric) (*pb.IngestResponse, error) {
 	val, err := proto.Marshal(metric)
 	if err != nil {
