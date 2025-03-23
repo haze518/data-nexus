@@ -10,7 +10,7 @@ type Storage interface {
 
 	// Drain returns all currently stored metrics and clears the buffer.
 	// The second return value is true if there were any metrics to return, false otherwise.
-	Drain() ([]*types.Metric, bool)
+	Drain() (map[string][]*types.Metric, bool)
 
 	// Len returns the current number of metrics stored in the buffer.
 	Len() int

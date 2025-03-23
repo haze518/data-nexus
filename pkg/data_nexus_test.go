@@ -60,7 +60,7 @@ func TestDataNexus(t *testing.T) {
 	}
 	t.Logf("IngestMetric response: %v", resp)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	httpResp, err := http.Get("http://" + httpAddr + "/metrics")
 	if err != nil {
@@ -129,7 +129,7 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 			t.Fatalf("server.Start() failed: %v", err)
 		}
 	}()
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	httpResp, err := http.Get("http://" + activeServer.httpSrv.Addr + "/metrics")
 	if err != nil {
@@ -143,7 +143,7 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 	output := string(body)
 	t.Logf("HTTP /metrics output:\n%s", output)
 
-	if strings.Count(output, "cpu_usage") != 3 {
+	if strings.Count(output, "cpu_usage") != 4 { // len(metrics) + help
 		t.Errorf("expected 3 occurrences of 'cpu_usage', but got %d", strings.Count(output, "cpu_usage"))
 	}
 
