@@ -24,12 +24,13 @@ func Config() config.Config {
 	}
 	interval := time.Millisecond * 10
 	worker := config.WorkerConfig{
-		HeartbeatInterval:     interval,
-		ConsumerInterval:      interval,
-		RedistributorInterval: interval * 2,
-		SinkerInterval:        interval,
-		AckerInterval:         interval,
-		BatchSize:             100,
+		HeartbeatInterval:        interval,
+		ConsumerInterval:         interval,
+		RedistributorInterval:    interval * 2,
+		SinkerInterval:           interval,
+		AckerInterval:            interval,
+		RetentionCleanerInterval: interval,
+		BatchSize:                100,
 	}
 	metric := config.MetricsConfig{
 		Retention: interval,

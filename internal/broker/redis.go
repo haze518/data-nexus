@@ -123,8 +123,8 @@ func (b *RedisBroker) Consume(n int64) ([]*types.Metric, error) {
 	return result, nil
 }
 
-// AckCollected acknowledges the successful processing of messages by ID.
-func (b *RedisBroker) AckCollected(ids ...string) error {
+// Ack acknowledges the successful processing of messages by ID.
+func (b *RedisBroker) Ack(ids ...string) error {
 	return b.client.XAck(context.Background(), b.config.StreamName, b.config.ConsumerGroup, ids...).Err()
 }
 

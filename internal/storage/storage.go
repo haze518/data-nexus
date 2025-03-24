@@ -1,6 +1,10 @@
 package storage
 
-import "github.com/haze518/data-nexus/internal/types"
+import (
+	"time"
+
+	"github.com/haze518/data-nexus/internal/types"
+)
 
 // Storage defines an interface for a temporary buffer
 // used to collect, access, and drain metrics.
@@ -14,4 +18,8 @@ type Storage interface {
 
 	// Len returns the current number of metrics stored in the buffer.
 	Len() int
+
+	// RemoveOlderThan removes all metric buckets whose start time is older than the given interval
+	// from the current time. It returns a flat slice of removed metrics.
+	RemoveOlderThan(interval time.Duration) []*types.Metric
 }
