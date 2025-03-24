@@ -149,3 +149,92 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 
 	activeServer.Shutdown()
 }
+
+func TestDataNexus_MultipleServices(t *testing.T) {
+	client := testutil.SetupRedis(t)
+	defer testutil.CleanupRedis(t, client)
+
+	deadConfig := testutil.Config()
+	deadConfig.GRPCAddr = "127.0.0.1:50051"
+	deadConfig.HTTPAddr = "127.0.0.1:8081"
+	deadConfig.RedisConfig.ConsumerID = "dead_server"
+	deadConfig.Worker.BatchSize = 2
+	deadServer, err := NewServer(&deadConfig)
+	if err != nil {
+		t.Fatalf("failed to create dead server: %v", err)
+	}
+
+	activeConfig := testutil.Config()
+	activeConfig.GRPCAddr = "127.0.0.1:50052"
+	activeConfig.HTTPAddr = "127.0.0.1:8082"
+	activeConfig.RedisConfig.ConsumerID = "active_server"
+	activeConfig.Worker.BatchSize = 2
+	activeServer, err := NewServer(&activeConfig)
+	if err != nil {
+		t.Fatalf("failed to create active server: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		m, _ := proto.Marshal(&pb.Metric{
+			Name:      "cpu_usage",
+			Value:     42.5 + float64(i),
+			Type:      "gauge",
+			Timestamp: time.Now().Unix(),
+			Labels:    map[string]string{"service": "test"},
+		})
+		_, err = deadServer.broker.Publish(context.Background(), m)
+		if err != nil {
+			t.Fatalf("failed to publish message: %v", err)
+		}
+	}
+
+	go func() {
+		if err := activeServer.Start(); err != nil {
+			t.Errorf("activeServer.Start() failed: %v", err)
+		}
+	}()
+	go func() {
+		if err := deadServer.Start(); err != nil {
+			t.Errorf("deadServer.Start() failed: %v", err)
+		}
+	}()
+
+	time.Sleep(2 * time.Second)
+
+	checkMetrics := func(addr string) string {
+		httpResp, err := http.Get("http://" + addr + "/metrics")
+		if err != nil {
+			t.Fatalf("failed to GET /metrics from %s: %v", addr, err)
+		}
+		defer httpResp.Body.Close()
+		body, err := io.ReadAll(httpResp.Body)
+		if err != nil {
+			t.Fatalf("failed to read HTTP response from %s: %v", addr, err)
+		}
+		return string(body)
+	}
+
+	activeOutput := checkMetrics(activeConfig.HTTPAddr)
+	deadOutput := checkMetrics(deadConfig.HTTPAddr)
+
+	t.Logf("Active Server Metrics:\n%s", activeOutput)
+	t.Logf("Dead Server Metrics:\n%s", deadOutput)
+
+	activeCount := strings.Count(activeOutput, "cpu_usage{service=\"test\"}")
+	deadCount := strings.Count(deadOutput, "cpu_usage{service=\"test\"}")
+	totalMetrics := activeCount + deadCount
+
+	if totalMetrics != 10 {
+		t.Errorf("expected total 10 metrics, but got %d (active: %d, dead: %d)", totalMetrics, activeCount, deadCount)
+	}
+
+	if activeCount == 0 {
+		t.Error("active server did not process any metrics")
+	}
+	if deadCount == 0 {
+		t.Error("dead server did not process any metrics")
+	}
+
+	activeServer.Shutdown()
+	deadServer.Shutdown()
+}

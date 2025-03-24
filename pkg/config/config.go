@@ -20,7 +20,6 @@ type Config struct {
 	RedisConfig RedisConfig   // Configuration for connecting to Redis
 	Logging     LoggingConfig // Logging level and output settings
 	Worker      WorkerConfig  // Configuration for background workers
-	Metrics     MetricsConfig // Configuration for metric storage and retention
 }
 
 // NewConfig creates a new Config instance and applies all provided Option functions.
@@ -68,13 +67,6 @@ func WithWorkerConfig(config WorkerConfig) Option {
 	}
 }
 
-// WithMetricsConfig sets the metric retention configuration.
-func WithMetricsConfig(config MetricsConfig) Option {
-	return func(c *Config) {
-		c.Metrics = config
-	}
-}
-
 // newDefaultConfig returns a Config instance with pre-defined default values
 // for development and local testing.
 func newDefaultConfig() Config {
@@ -102,9 +94,6 @@ func newDefaultConfig() Config {
 		BatchSize:                1,
 		RetentionMaxAge:          15 * time.Minute,
 	}
-	metric := MetricsConfig{
-		Retention: interval,
-	}
 
 	return Config{
 		GRPCAddr:    "127.0.0.1:50051",
@@ -112,7 +101,6 @@ func newDefaultConfig() Config {
 		RedisConfig: redis,
 		Logging:     logging,
 		Worker:      worker,
-		Metrics:     metric,
 	}
 }
 
@@ -146,9 +134,4 @@ type WorkerConfig struct {
 	BatchSize                int           // Maximum number of messages per consumption batch
 	ShutdownTimeout          time.Duration // (Optional) Timeout for graceful shutdown
 	RetentionMaxAge          time.Duration // Maximum age of metrics to retain; older metrics will be removed from storage
-}
-
-// MetricsConfig contains settings related to in-memory metric retention.
-type MetricsConfig struct {
-	Retention time.Duration // Duration to retain metrics in memory
 }

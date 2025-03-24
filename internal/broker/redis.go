@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/haze518/data-nexus/internal/logging"
@@ -18,8 +17,6 @@ type RedisBroker struct {
 	client               *redis.Client      // Redis client instance
 	config               config.RedisConfig // Configuration for Redis connection and stream setup
 	log                  *logging.Logger    // Logger for internal logging
-	consumerGroupCreated atomic.Bool        // Ensures consumer group is only created once
-	streamCreated        atomic.Bool        // Ensures stream is created before operations
 }
 
 // NewRedisBroker initializes a new RedisBroker with the given config and logger.
@@ -31,7 +28,18 @@ func NewRedisBroker(config config.RedisConfig, logger *logging.Logger) (*RedisBr
 		DB:       config.DB,
 		PoolSize: config.PoolSize,
 	})
-	return &RedisBroker{client, config, logger, atomic.Bool{}, atomic.Bool{}}, nil
+
+	broker := &RedisBroker{
+		client: client,
+		config: config,
+		log:    logger,
+	}
+
+	if err := broker.initStreamAndGroup(); err != nil {
+		return nil, fmt.Errorf("initStreamAndGroup: %w", err)
+	}
+
+	return broker, nil
 }
 
 // Close gracefully closes the Redis client connection.
@@ -48,9 +56,6 @@ func (b *RedisBroker) Publish(ctx context.Context, val []byte) (string, error) {
 			"data": val,
 		},
 	}).Result()
-	if !b.streamCreated.Load() {
-		b.streamCreated.Store(true)
-	}
 	if err != nil {
 		return "", fmt.Errorf("client.XAdd: %w", err)
 	}
@@ -71,9 +76,6 @@ func (b *RedisBroker) PublishBatch(ctx context.Context, vals [][]byte) ([]string
 		})
 		ids = append(ids, cmd.Val())
 	}
-	if !b.streamCreated.Load() {
-		b.streamCreated.Store(true)
-	}
 
 	_, err := tx.Exec(ctx)
 	if err != nil {
@@ -85,10 +87,6 @@ func (b *RedisBroker) PublishBatch(ctx context.Context, vals [][]byte) ([]string
 // Consume reads up to 'n' messages from the Redis stream using consumer groups.
 // It blocks for up to 5 seconds if no messages are available.
 func (b *RedisBroker) Consume(n int64) ([]*types.Metric, error) {
-	err := b.ensureGroupExists()
-	if err != nil {
-		return nil, fmt.Errorf("s.ensureGroupExists: %w", err)
-	}
 	streams, err := b.client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
 		Streams:  []string{b.config.StreamName, ">"},
 		Group:    b.config.ConsumerGroup,
@@ -273,34 +271,13 @@ func (b *RedisBroker) MoveInactiveServerMsgs(inactiveSrv string, batchSize int) 
 	return metrics, nil
 }
 
-// ensureGroupExists ensures that the Redis consumer group exists.
-// If it doesn't, the group is created. This method is idempotent.
-func (b *RedisBroker) ensureGroupExists() error {
-	if !b.streamCreated.Load() {
-		return fmt.Errorf("stream is not created yet, need init publish")
-	}
-	if b.consumerGroupCreated.Load() {
-		return nil
-	}
-	groups, err := b.client.XInfoGroups(context.Background(), b.config.StreamName).Result()
-	if err != nil {
-		return fmt.Errorf("client.XInfoGroups: %w", err)
-	}
-	var groupExists bool
-	for _, g := range groups {
-		if g.Name == b.config.ConsumerGroup {
-			groupExists = true
-			break
-		}
+func (b *RedisBroker) initStreamAndGroup() error {
+	ctx := context.Background()
+
+	err := b.client.XGroupCreateMkStream(ctx, b.config.StreamName, b.config.ConsumerGroup, "0").Err()
+	if err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
+		return fmt.Errorf("XGroupCreateMkStream: %w", err)
 	}
 
-	if !groupExists {
-		b.log.Info(fmt.Sprintf("Consumer group %v does not exist, creating...", b.config.ConsumerGroup))
-		err = b.client.XGroupCreate(context.Background(), b.config.StreamName, b.config.ConsumerGroup, "0").Err()
-		if err != nil {
-			return fmt.Errorf("client.XGroupCreate: %w", err)
-		}
-		b.consumerGroupCreated.Store(true)
-	}
 	return nil
 }
