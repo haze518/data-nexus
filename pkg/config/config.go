@@ -100,6 +100,7 @@ func newDefaultConfig() Config {
 		SinkerInterval:           interval,
 		AckerInterval:            interval,
 		BatchSize:                1,
+		RetentionMaxAge:          15 * time.Minute,
 	}
 	metric := MetricsConfig{
 		Retention: interval,
@@ -144,6 +145,7 @@ type WorkerConfig struct {
 	RetentionCleanerInterval time.Duration // Interval for clean old metrics processing
 	BatchSize                int           // Maximum number of messages per consumption batch
 	ShutdownTimeout          time.Duration // (Optional) Timeout for graceful shutdown
+	RetentionMaxAge          time.Duration // Maximum age of metrics to retain; older metrics will be removed from storage
 }
 
 // MetricsConfig contains settings related to in-memory metric retention.

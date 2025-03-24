@@ -31,6 +31,7 @@ func Config() config.Config {
 		AckerInterval:            interval,
 		RetentionCleanerInterval: interval,
 		BatchSize:                100,
+		RetentionMaxAge:          15 * time.Minute,
 	}
 	metric := config.MetricsConfig{
 		Retention: interval,

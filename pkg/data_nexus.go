@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/haze518/data-nexus/internal/broker"
 	"github.com/haze518/data-nexus/internal/grpcserver"
@@ -57,7 +56,7 @@ func NewServer(config *config.Config) (*Server, error) {
 	heartbeater := workers.NewHeartbeater(broker, config.Worker.HeartbeatInterval, logger)
 	redistributor := workers.NewRedistributor(broker, config.Worker.RedistributorInterval, logger, metricsCh)
 	acker := workers.NewAcker(broker, config.Worker.AckerInterval, logger, collectedIDsCh)
-	cleaner := workers.NewRetentionCleaner(broker, config.Worker.RetentionCleanerInterval, logger, storage, 15*time.Minute)
+	cleaner := workers.NewRetentionCleaner(broker, config.Worker.RetentionCleanerInterval, logger, storage, config.Worker.RetentionMaxAge)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler(storage, collectedIDsCh))
@@ -84,14 +83,14 @@ func NewServer(config *config.Config) (*Server, error) {
 func (s *Server) Start() error {
 	go func() {
 		if err := s.grpcServer.Start(); err != nil {
-			s.logger.Error("Failed to start grpc server")
+			s.logger.Error("Failed to start grpc server", err)
 			return
 		}
 	}()
 
 	go func() {
 		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error(fmt.Sprintf("Failed to start HTTP server: %v", err))
+			s.logger.Error("Failed to start HTTP server: ", err)
 		}
 	}()
 

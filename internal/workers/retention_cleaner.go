@@ -10,22 +10,22 @@ import (
 )
 
 type RetentionCleaner struct {
-	interval          time.Duration
-	done              chan struct{}
-	logger            *logging.Logger
-	broker            broker.Broker
-	storage           storage.Storage
-	retentionInterval time.Duration
+	interval time.Duration
+	done     chan struct{}
+	logger   *logging.Logger
+	broker   broker.Broker
+	storage  storage.Storage
+	maxAge   time.Duration
 }
 
-func NewRetentionCleaner(broker broker.Broker, interval time.Duration, logger *logging.Logger, storage storage.Storage, retentionInterval time.Duration) *RetentionCleaner {
+func NewRetentionCleaner(broker broker.Broker, interval time.Duration, logger *logging.Logger, storage storage.Storage, maxAge time.Duration) *RetentionCleaner {
 	return &RetentionCleaner{
-		broker:            broker,
-		interval:          interval,
-		logger:            logger,
-		storage:           storage,
-		done:              make(chan struct{}),
-		retentionInterval: retentionInterval,
+		broker:   broker,
+		interval: interval,
+		logger:   logger,
+		storage:  storage,
+		done:     make(chan struct{}),
+		maxAge:   maxAge,
 	}
 }
 
@@ -44,7 +44,7 @@ func (r *RetentionCleaner) Start(wg *sync.WaitGroup) {
 				return
 
 			case <-ticker.C:
-				deleted := r.storage.RemoveOlderThan(r.retentionInterval)
+				deleted := r.storage.RemoveOlderThan(r.maxAge)
 				ids := make([]string, 0, len(deleted))
 				for _, m := range deleted {
 					if m.ID != nil {
