@@ -93,12 +93,13 @@ func newDefaultConfig() Config {
 	}
 	interval := time.Second
 	worker := WorkerConfig{
-		HeartbeatInterval:     interval,
-		ConsumerInterval:      interval,
-		RedistributorInterval: interval * 2,
-		SinkerInterval:        interval,
-		AckerInterval:         interval,
-		BatchSize:             1,
+		HeartbeatInterval:        interval,
+		ConsumerInterval:         interval,
+		RetentionCleanerInterval: interval,
+		RedistributorInterval:    interval * 2,
+		SinkerInterval:           interval,
+		AckerInterval:            interval,
+		BatchSize:                1,
 	}
 	metric := MetricsConfig{
 		Retention: interval,
@@ -135,13 +136,14 @@ type LoggingConfig struct {
 // WorkerConfig defines how each worker behaves — intervals for heartbeats,
 // message consumption, redistributing, sink timing, and acking, as well as batch size.
 type WorkerConfig struct {
-	HeartbeatInterval     time.Duration // Interval between heartbeat updates
-	ConsumerInterval      time.Duration // Interval for message consumption
-	RedistributorInterval time.Duration // Interval for redistributing inactive messages
-	SinkerInterval        time.Duration // Interval for persisting metrics (if buffered)
-	AckerInterval         time.Duration // Interval for acknowledging processed messages
-	BatchSize             int           // Maximum number of messages per consumption batch
-	ShutdownTimeout       time.Duration // (Optional) Timeout for graceful shutdown
+	HeartbeatInterval        time.Duration // Interval between heartbeat updates
+	ConsumerInterval         time.Duration // Interval for message consumption
+	RedistributorInterval    time.Duration // Interval for redistributing inactive messages
+	SinkerInterval           time.Duration // Interval for persisting metrics (if buffered)
+	AckerInterval            time.Duration // Interval for acknowledging processed messages
+	RetentionCleanerInterval time.Duration // Interval for clean old metrics processing
+	BatchSize                int           // Maximum number of messages per consumption batch
+	ShutdownTimeout          time.Duration // (Optional) Timeout for graceful shutdown
 }
 
 // MetricsConfig contains settings related to in-memory metric retention.

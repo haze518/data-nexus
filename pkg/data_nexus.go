@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/haze518/data-nexus/internal/broker"
 	"github.com/haze518/data-nexus/internal/grpcserver"
@@ -20,18 +21,19 @@ import (
 // all internal components, including gRPC and HTTP servers, background workers,
 // broker connection, and in-memory storage.
 type Server struct {
-	logger *logging.Logger // Application logger
-	broker broker.Broker   // Message broker for metric handling
+	logger *logging.Logger
+	broker broker.Broker
 
-	grpcServer *grpcserver.Server // gRPC server for external communication
-	httpSrv    *http.Server       // HTTP server exposing Prometheus metrics
+	grpcServer *grpcserver.Server
+	httpSrv    *http.Server
 
-	wg            sync.WaitGroup         // WaitGroup used to gracefully shutdown workers
-	consumer      *workers.Consumer      // Worker that consumes metrics from broker
-	dataSinker    *workers.Sinker        // Worker that writes metrics to storage
-	heartbeater   *workers.Heartbeater   // Worker that updates server state
-	redistributor *workers.Redistributor // Worker that redistributes metrics from inactive nodes
-	acker         *workers.Acker         // Worker that acknowledges processed metrics
+	wg            sync.WaitGroup
+	consumer      *workers.Consumer
+	dataSinker    *workers.Sinker
+	heartbeater   *workers.Heartbeater
+	redistributor *workers.Redistributor
+	acker         *workers.Acker
+	cleaner       *workers.RetentionCleaner
 }
 
 // NewServer creates and initializes a new Server instance.
@@ -55,6 +57,7 @@ func NewServer(config *config.Config) (*Server, error) {
 	heartbeater := workers.NewHeartbeater(broker, config.Worker.HeartbeatInterval, logger)
 	redistributor := workers.NewRedistributor(broker, config.Worker.RedistributorInterval, logger, metricsCh)
 	acker := workers.NewAcker(broker, config.Worker.AckerInterval, logger, collectedIDsCh)
+	cleaner := workers.NewRetentionCleaner(broker, config.Worker.RetentionCleanerInterval, logger, storage, 15*time.Minute)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler(storage, collectedIDsCh))
@@ -68,6 +71,7 @@ func NewServer(config *config.Config) (*Server, error) {
 		heartbeater:   heartbeater,
 		redistributor: redistributor,
 		acker:         acker,
+		cleaner:       cleaner,
 		httpSrv: &http.Server{
 			Addr:    config.HTTPAddr,
 			Handler: mux,
@@ -96,6 +100,7 @@ func (s *Server) Start() error {
 	s.dataSinker.Start(&s.wg)
 	s.redistributor.Start(&s.wg)
 	s.acker.Start(&s.wg)
+	s.cleaner.Start(&s.wg)
 
 	return nil
 }
@@ -111,6 +116,7 @@ func (s *Server) Shutdown() {
 	s.consumer.Shutdown()
 	s.dataSinker.Shutdown()
 	s.acker.Shutdown()
+	s.cleaner.Shutdown()
 
 	s.wg.Wait()
 	s.broker.Close()

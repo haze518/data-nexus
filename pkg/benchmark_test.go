@@ -133,7 +133,7 @@ func BenchmarkE2EBatch(t *testing.B) {
 		}
 	}
 
-	time.Sleep(30 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	var count int
 	for count < totalMetrics {

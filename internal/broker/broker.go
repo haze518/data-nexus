@@ -34,9 +34,8 @@ type Broker interface {
 	// Returns up to batchSize metrics or an error.
 	MoveInactiveServerMsgs(inactiveSrv string, batchSize int) ([]*types.Metric, error)
 
-	// AckCollected acknowledges that messages with the given IDs
-	// have been successfully processed and can be removed from the stream.
-	AckCollected(ids ...string) error
+	// Ack acknowledges that messages with the given IDs
+	Ack(ids ...string) error
 
 	// Close gracefully closes any open connections to the broker.
 	Close() error

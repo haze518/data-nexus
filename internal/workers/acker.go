@@ -49,7 +49,7 @@ func (a *Acker) Start(wg *sync.WaitGroup) {
 				return
 
 			case ids := <-a.collectedIDsCh:
-				err := a.broker.AckCollected(ids...)
+				err := a.broker.Ack(ids...)
 				if err != nil {
 					a.logger.Error("unable to ack collected metrics", ids)
 				}
