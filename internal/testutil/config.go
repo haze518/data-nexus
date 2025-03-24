@@ -33,15 +33,11 @@ func Config() config.Config {
 		BatchSize:                100,
 		RetentionMaxAge:          15 * time.Minute,
 	}
-	metric := config.MetricsConfig{
-		Retention: interval,
-	}
 	return config.Config{
 		GRPCAddr:    "127.0.0.1:50051",
 		HTTPAddr:    "127.0.0.1:8080",
 		RedisConfig: redis,
 		Logging:     logging,
 		Worker:      worker,
-		Metrics:     metric,
 	}
 }
