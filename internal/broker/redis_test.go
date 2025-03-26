@@ -1,4 +1,4 @@
-package broker
+package broker_test
 
 import (
 	"context"
@@ -15,31 +15,22 @@ import (
 )
 
 func TestPublish(t *testing.T) {
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
-
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
 	ctx := context.Background()
-	cfg := testutil.Config()
-	rs, err := NewRedisBroker(cfg.RedisConfig, logger)
-	if err != nil {
-		t.Fatalf("failed to create stream: %s", err)
-	}
-	if rs == nil {
-		t.Fatalf("redisStream should not be nil")
-	}
+	factory := testutil.NewRedisFactory(t, logger)
+	rs := factory.NewBroker("", "publish")
 
 	metric, _ := proto.Marshal(&pb.Metric{
 		Name:      "cpu_usage",
 		Value:     42.5,
 		Timestamp: time.Now().Unix(),
 	})
-	_, err = rs.Publish(ctx, metric)
+	_, err := rs.Publish(ctx, metric)
 	if err != nil {
 		t.Fatalf("failed to publish message: %v", err)
 	}
 
-	streams, err := client.XRange(ctx, cfg.RedisConfig.StreamName, "-", "+").Result()
+	streams, err := rs.Client.XRange(ctx, rs.Config.StreamName, "-", "+").Result()
 	if err != nil {
 		t.Errorf("client.XRange: %v", err)
 	}
@@ -49,19 +40,10 @@ func TestPublish(t *testing.T) {
 }
 
 func TestConsume(t *testing.T) {
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
-
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
 	ctx := context.Background()
-	testRedisConfig := testutil.Config().RedisConfig
-	rs, err := NewRedisBroker(testRedisConfig, logger)
-	if err != nil {
-		t.Fatalf("failed to create stream: %s", err)
-	}
-	if rs == nil {
-		t.Fatalf("redisStream should not be nil")
-	}
+	factory := testutil.NewRedisFactory(t, logger)
+	rs := factory.NewBroker("", "consume")
 
 	metric := &pb.Metric{
 		Name:      "cpu_usage",
@@ -69,7 +51,7 @@ func TestConsume(t *testing.T) {
 		Timestamp: time.Now().Unix(),
 	}
 	pbmetric, _ := proto.Marshal(metric)
-	_, err = rs.Publish(ctx, pbmetric)
+	_, err := rs.Publish(ctx, pbmetric)
 	if err != nil {
 		t.Fatalf("failed to publish message: %v", err)
 	}
@@ -97,11 +79,10 @@ func TestMoveInactiveServerMsgs(t *testing.T) {
 	batchSize := 50
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
 
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
+	factory := testutil.NewRedisFactory(t, logger)
 
-	inactiveRs := newRedis("dead_server", logger)
-	activeRs := newRedis("active_server", logger)
+	inactiveRs := factory.NewBroker("dead_server", "mv_inactive_server")
+	activeRs := factory.NewBroker("active_server", "mv_inactive_server")
 
 	for i := 0; i < 3; i++ {
 		metric, _ := proto.Marshal(&pb.Metric{
@@ -133,7 +114,7 @@ func TestMoveInactiveServerMsgs(t *testing.T) {
 		t.Errorf("expected to move messages, but got none")
 	}
 
-	exists, _ := client.Exists(ctx, fmt.Sprintf("state:%s", "dead_server")).Result()
+	exists, _ := activeRs.Client.Exists(ctx, fmt.Sprintf("state:%s:%s", activeRs.Config.Namespace(), "dead_server")).Result()
 	if exists == 0 {
 		t.Error("expected state to exist, but it was deleted early")
 	}
@@ -146,18 +127,8 @@ func TestMoveInactiveServerMsgs(t *testing.T) {
 		t.Fatalf("MoveInactiveServerMsgs failed: %v", err)
 	}
 
-	exists, _ = client.Exists(ctx, fmt.Sprintf("state:%s", "dead_server")).Result()
+	exists, _ = activeRs.Client.Exists(ctx, fmt.Sprintf("state:%s:%s", activeRs.Config.Namespace(), "dead_server")).Result()
 	if exists != 0 {
 		t.Errorf("expected state to be deleted after all messages were moved")
 	}
-}
-
-func newRedis(name string, logger *logging.Logger) *RedisBroker {
-	cfg := testutil.Config().RedisConfig
-	cfg.ConsumerID = name
-	rs, err := NewRedisBroker(cfg, logger)
-	if err != nil {
-		panic("failed to create stream")
-	}
-	return rs
 }

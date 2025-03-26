@@ -54,7 +54,7 @@ func (r *RetentionCleaner) Start(wg *sync.WaitGroup) {
 				if len(ids) > 0 {
 					err := r.broker.Ack(ids...)
 					if err != nil {
-						r.logger.Error("broker.AckCollected: ", err)
+						r.logger.Error("broker.AckCollected: ", err, "ids", ids)
 					}
 				}
 			}
