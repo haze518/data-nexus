@@ -39,4 +39,7 @@ type Broker interface {
 
 	// Close gracefully closes any open connections to the broker.
 	Close() error
+
+	// Clean broker data
+	Clean() error
 }

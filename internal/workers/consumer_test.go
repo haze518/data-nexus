@@ -17,10 +17,9 @@ import (
 func TestConsumer(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
 
-	rs := newRedis("srv", logger)
+	factory := testutil.NewRedisFactory(t, logger)
+	rs := factory.NewBroker("", "consumer")
 	var wg sync.WaitGroup
 	ch := make(chan []*types.Metric, 1)
 	consumer := NewConsumer(rs, 100*time.Millisecond, logger, ch, 3)

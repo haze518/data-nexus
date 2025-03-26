@@ -2,12 +2,15 @@ package datanexus
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/haze518/data-nexus/internal/logging"
 	"github.com/haze518/data-nexus/internal/testutil"
 	"github.com/haze518/data-nexus/internal/types"
 	pb "github.com/haze518/data-nexus/proto"
@@ -17,28 +20,34 @@ import (
 
 func TestDataNexus(t *testing.T) {
 	ctx := context.Background()
-	redisClient := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, redisClient)
+	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
 
 	grpcAddr := "127.0.0.1:50051"
 	httpAddr := "127.0.0.1:8080"
+	factory := testutil.NewRedisFactory(t, logger)
+	rs := factory.NewBroker("", "data-nexus")
 
 	config := testutil.Config()
 	config.GRPCAddr = grpcAddr
 	config.HTTPAddr = httpAddr
 
-	srv, err := NewServer(&config)
+	srv, err := NewServer(&config, WithBroker(rs))
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.Start(); err != nil {
-			t.Fatalf("server.Start() failed: %v", err)
+			errCh <- fmt.Errorf("server.Start() failed: %v", err)
 		}
 	}()
 
-	time.Sleep(1 * time.Second)
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(1 * time.Second):
+	}
 
 	conn, err := grpc.Dial(grpcAddr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(5*time.Second))
 	if err != nil {
@@ -82,26 +91,26 @@ func TestDataNexus(t *testing.T) {
 }
 
 func TestDataNexus_ReassignMessages(t *testing.T) {
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
+	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
+	factory := testutil.NewRedisFactory(t, logger)
 
 	deadConfig := testutil.Config()
 	deadConfig.GRPCAddr = "127.0.0.1:50051"
-	deadConfig.RedisConfig.ConsumerID = "dead_server"
-	deadServer, err := NewServer(&deadConfig)
+	deadRs := factory.NewBroker("dead_server", "reassign_messages")
+	deadServer, err := NewServer(&deadConfig, WithBroker(deadRs))
 	if err != nil {
 		t.Fatalf("failed to create dead server: %v", err)
 	}
 
 	activeConfig := testutil.Config()
 	activeConfig.GRPCAddr = "127.0.0.1:50052"
-	activeConfig.RedisConfig.ConsumerID = "active_server"
-	activeServer, err := NewServer(&activeConfig)
+	activeRs := factory.NewBroker("active_server", "reassign_messages")
+	activeServer, err := NewServer(&activeConfig, WithBroker(activeRs))
 	if err != nil {
 		t.Fatalf("failed to create active server: %v", err)
 	}
 
-	err = deadServer.broker.SetServerState(types.ServerStateInactive, 10*time.Second)
+	err = deadRs.SetServerState(types.ServerStateInactive, 10*time.Second)
 	if err != nil {
 		t.Fatalf("failed to set dead server state: %v", err)
 	}
@@ -124,12 +133,18 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 		t.Fatalf("failed to consume messages from dead server: %v", err)
 	}
 
+	errCh := make(chan error, 1)
 	go func() {
 		if err := activeServer.Start(); err != nil {
-			t.Fatalf("server.Start() failed: %v", err)
+			errCh <- fmt.Errorf("server.Start() failed: %v", err)
 		}
 	}()
-	time.Sleep(1 * time.Second)
+
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(1 * time.Second):
+	}
 
 	httpResp, err := http.Get("http://" + activeServer.httpSrv.Addr + "/metrics")
 	if err != nil {
@@ -143,7 +158,7 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 	output := string(body)
 	t.Logf("HTTP /metrics output:\n%s", output)
 
-	if strings.Count(output, "cpu_usage") != 4 { // len(metrics) + help
+	if strings.Count(output, "cpu_usage{service=\"test\"}") != 3 { // len(metrics) + help
 		t.Errorf("expected 3 occurrences of 'cpu_usage', but got %d", strings.Count(output, "cpu_usage"))
 	}
 
@@ -151,15 +166,16 @@ func TestDataNexus_ReassignMessages(t *testing.T) {
 }
 
 func TestDataNexus_MultipleServices(t *testing.T) {
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
+	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
+	factory := testutil.NewRedisFactory(t, logger)
 
 	deadConfig := testutil.Config()
 	deadConfig.GRPCAddr = "127.0.0.1:50051"
 	deadConfig.HTTPAddr = "127.0.0.1:8081"
-	deadConfig.RedisConfig.ConsumerID = "dead_server"
 	deadConfig.Worker.BatchSize = 2
-	deadServer, err := NewServer(&deadConfig)
+	deadRs := factory.NewBroker("first", "multiple_services")
+
+	deadServer, err := NewServer(&deadConfig, WithBroker(deadRs))
 	if err != nil {
 		t.Fatalf("failed to create dead server: %v", err)
 	}
@@ -169,7 +185,9 @@ func TestDataNexus_MultipleServices(t *testing.T) {
 	activeConfig.HTTPAddr = "127.0.0.1:8082"
 	activeConfig.RedisConfig.ConsumerID = "active_server"
 	activeConfig.Worker.BatchSize = 2
-	activeServer, err := NewServer(&activeConfig)
+	activeRs := factory.NewBroker("second", "multiple_services")
+
+	activeServer, err := NewServer(&activeConfig, WithBroker(activeRs))
 	if err != nil {
 		t.Fatalf("failed to create active server: %v", err)
 	}

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/haze518/data-nexus/internal/broker"
 	"github.com/haze518/data-nexus/internal/logging"
 	"github.com/haze518/data-nexus/internal/testutil"
 	"github.com/haze518/data-nexus/internal/types"
@@ -18,11 +17,10 @@ import (
 func TestRedistributor(t *testing.T) {
 	ctx := context.Background()
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
 
-	inactiveRs := newRedis("dead_server", logger)
-	activeRs := newRedis("active_server", logger)
+	factory := testutil.NewRedisFactory(t, logger)
+	inactiveRs := factory.NewBroker("inactive_server", "redistributor")
+	activeRs := factory.NewBroker("active_server", "redistributor")
 
 	err := inactiveRs.SetServerState(types.ServerStateInactive, 10*time.Second)
 	if err != nil {
@@ -65,14 +63,4 @@ func TestRedistributor(t *testing.T) {
 
 	redistributor.Shutdown()
 	wg.Wait()
-}
-
-func newRedis(name string, logger *logging.Logger) *broker.RedisBroker {
-	testRedisConfig := testutil.Config().RedisConfig
-	testRedisConfig.ConsumerID = name
-	rs, err := broker.NewRedisBroker(testRedisConfig, logger)
-	if err != nil {
-		panic("failed to create stream")
-	}
-	return rs
 }

@@ -14,10 +14,9 @@ import (
 
 func TestRetentionCleaner(t *testing.T) {
 	logger := logging.NewLogger(logging.InfoLevel, os.Stdout)
-	client := testutil.SetupRedis(t)
-	defer testutil.CleanupRedis(t, client)
 
-	rs := newRedis("retention_srv", logger)
+	factory := testutil.NewRedisFactory(t, logger)
+	rs := factory.NewBroker("", "retention_cleaner")
 
 	st := storage.NewInMemoryStorage(storage.WithBucketDuration(1 * time.Second))
 
@@ -29,19 +28,16 @@ func TestRetentionCleaner(t *testing.T) {
 			Name:      "cpu_usage",
 			Value:     42.5,
 			Timestamp: oldTime,
-			ID:        stringPtr("id1"),
 		},
 		&types.Metric{
 			Name:      "cpu_usage",
 			Value:     43.0,
 			Timestamp: oldTime,
-			ID:        stringPtr("id2"),
 		},
 		&types.Metric{
 			Name:      "cpu_usage",
 			Value:     44.0,
 			Timestamp: now,
-			ID:        stringPtr("id3"),
 		},
 	)
 
@@ -57,8 +53,4 @@ func TestRetentionCleaner(t *testing.T) {
 	if st.Len() != 1 {
 		t.Fatalf("expected 1 metric after retention cleanup, got %d", st.Len())
 	}
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

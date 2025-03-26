@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -114,6 +115,10 @@ type RedisConfig struct {
 	StreamName    string // Redis stream name used for messaging
 	ConsumerGroup string // Consumer group name for stream processing
 	ConsumerID    string // Consumer ID within the consumer group
+}
+
+func (r *RedisConfig) Namespace() string {
+	return fmt.Sprintf("%d_%s_%s", r.DB, r.StreamName, r.ConsumerGroup)
 }
 
 // LoggingConfig defines logging behavior such as level and output destination.

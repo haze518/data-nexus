@@ -16,6 +16,39 @@ import (
 	"github.com/haze518/data-nexus/pkg/config"
 )
 
+type Option func(*ServerOptions)
+
+type ServerOptions struct {
+	logger     *logging.Logger
+	broker     broker.Broker
+	storage    storage.Storage
+	grpcServer *grpcserver.Server
+}
+
+func WithLogger(logger *logging.Logger) Option {
+	return func(so *ServerOptions) {
+		so.logger = logger
+	}
+}
+
+func WithBroker(broker broker.Broker) Option {
+	return func(so *ServerOptions) {
+		so.broker = broker
+	}
+}
+
+func WithStorage(storage storage.Storage) Option {
+	return func(so *ServerOptions) {
+		so.storage = storage
+	}
+}
+
+func WithGrpcServer(srv *grpcserver.Server) Option {
+	return func(so *ServerOptions) {
+		so.grpcServer = srv
+	}
+}
+
 // Server is the main application struct that initializes and manages
 // all internal components, including gRPC and HTTP servers, background workers,
 // broker connection, and in-memory storage.
@@ -37,34 +70,66 @@ type Server struct {
 
 // NewServer creates and initializes a new Server instance.
 // It configures internal services and background workers based on the provided configuration.
-func NewServer(config *config.Config) (*Server, error) {
-	logger := logging.NewLogger(config.Logging.Level, config.Logging.Output)
-
-	broker, err := broker.NewRedisBroker(config.RedisConfig, logger)
-	if err != nil {
-		return nil, fmt.Errorf("broker.NewRedisBroker: %w", err)
-	}
-
-	grpcSrv := grpcserver.NewServer(config.GRPCAddr, broker)
-	storage := storage.NewInMemoryStorage()
+func NewServer(config *config.Config, opts ...Option) (*Server, error) {
+	var srvOpt ServerOptions
+	var err error
 
 	collectedIDsCh := make(chan []string)
 	metricsCh := make(chan []*types.Metric)
 
-	consumer := workers.NewConsumer(broker, config.Worker.ConsumerInterval, logger, metricsCh, int64(config.Worker.BatchSize))
-	sinker := workers.NewSinker(broker, config.Worker.SinkerInterval, logger, metricsCh, storage)
-	heartbeater := workers.NewHeartbeater(broker, config.Worker.HeartbeatInterval, logger)
-	redistributor := workers.NewRedistributor(broker, config.Worker.RedistributorInterval, logger, metricsCh)
-	acker := workers.NewAcker(broker, config.Worker.AckerInterval, logger, collectedIDsCh)
-	cleaner := workers.NewRetentionCleaner(broker, config.Worker.RetentionCleanerInterval, logger, storage, config.Worker.RetentionMaxAge)
+	for _, o := range opts {
+		o(&srvOpt)
+	}
+
+	if srvOpt.logger == nil {
+		srvOpt.logger = logging.NewLogger(config.Logging.Level, config.Logging.Output)
+	}
+	if srvOpt.broker == nil {
+		srvOpt.broker, err = broker.NewRedisBroker(config.RedisConfig, srvOpt.logger)
+		if err != nil {
+			return nil, fmt.Errorf("broker.NewRedisBroker: %w", err)
+		}
+	}
+	if srvOpt.grpcServer == nil {
+		srvOpt.grpcServer = grpcserver.NewServer(config.GRPCAddr, srvOpt.broker)
+	}
+	if srvOpt.storage == nil {
+		srvOpt.storage = storage.NewInMemoryStorage()
+	}
+
+	consumer := workers.NewConsumer(
+		srvOpt.broker,
+		config.Worker.ConsumerInterval,
+		srvOpt.logger,
+		metricsCh,
+		int64(config.Worker.BatchSize),
+	)
+	sinker := workers.NewSinker(
+		srvOpt.broker, config.Worker.SinkerInterval, srvOpt.logger, metricsCh, srvOpt.storage,
+	)
+	heartbeater := workers.NewHeartbeater(srvOpt.broker, config.Worker.HeartbeatInterval, srvOpt.logger)
+	redistributor := workers.NewRedistributor(
+		srvOpt.broker,
+		config.Worker.RedistributorInterval,
+		srvOpt.logger,
+		metricsCh,
+	)
+	acker := workers.NewAcker(srvOpt.broker, config.Worker.AckerInterval, srvOpt.logger, collectedIDsCh)
+	cleaner := workers.NewRetentionCleaner(
+		srvOpt.broker,
+		config.Worker.RetentionCleanerInterval,
+		srvOpt.logger,
+		srvOpt.storage,
+		config.Worker.RetentionMaxAge,
+	)
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", metrics.Handler(storage, collectedIDsCh))
+	mux.Handle("/metrics", metrics.Handler(srvOpt.storage, collectedIDsCh))
 
 	return &Server{
-		logger:        logger,
-		broker:        broker,
-		grpcServer:    grpcSrv,
+		logger:        srvOpt.logger,
+		broker:        srvOpt.broker,
+		grpcServer:    srvOpt.grpcServer,
 		consumer:      consumer,
 		dataSinker:    sinker,
 		heartbeater:   heartbeater,
