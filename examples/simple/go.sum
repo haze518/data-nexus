@@ -4,6 +4,10 @@ github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/r
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/haze518/data-nexus v0.0.0-20250324064224-5a90f5e84928 h1:YxPvyduyNEhg8y2l83Lt8MN6tlA+FlHaGISq1gvcFU0=
 github.com/haze518/data-nexus v0.0.0-20250324064224-5a90f5e84928/go.mod h1:C3MsoD6dzKGGH9SgUKaUg1g9WxpmnAFVR0KzkCOAzXI=
+github.com/haze518/data-nexus v0.0.0-20250326031459-008e4b9e3a29 h1:NT2DBWM+x/ECj6oPh6mQgAj9qk1aJHhIsVsxMp3QlSg=
+github.com/haze518/data-nexus v0.0.0-20250326031459-008e4b9e3a29/go.mod h1:C3MsoD6dzKGGH9SgUKaUg1g9WxpmnAFVR0KzkCOAzXI=
+github.com/haze518/data-nexus v0.1.0 h1:O3zqS9vfv1VP9rn4X0YwRLM7Fnn5zM7Ln5BXi/7Egek=
+github.com/haze518/data-nexus v0.1.0/go.mod h1:C3MsoD6dzKGGH9SgUKaUg1g9WxpmnAFVR0KzkCOAzXI=
 github.com/redis/go-redis/v9 v9.7.1 h1:4LhKRCIduqXqtvCUlaq9c8bdHOkICjDMrr1+Zb3osAc=
 github.com/redis/go-redis/v9 v9.7.1/go.mod h1:f6zhXITC7JUJIlPEiBOTXxJgPLdZcA93GewI7inzyWw=
 golang.org/x/net v0.32.0 h1:ZqPmj8Kzc+Y6e0+skZsuACbx+wzMgo5MQsJh9Qd6aYI=
